@@ -54,6 +54,28 @@ impl Babyjubjub {
 
         Point { x: x, y: y }
     }
+
+    pub fn mul_scalar(&self, p: Point, n: BigInt) -> Point {
+        // TODO use & in p and n to avoid clones on function call
+        let mut r: Point = Point {
+            x: Zero::zero(),
+            y: One::one(),
+        };
+        let mut rem: BigInt = n;
+        let mut exp: Point = p;
+
+        let zero: BigInt = Zero::zero();
+        let one: BigInt = One::one();
+        while rem != zero {
+            let is_odd = &rem & &one == one;
+            if is_odd == true {
+                r = self.add(&r, &exp);
+            }
+            exp = self.add(&exp, &exp);
+            rem = rem >> 1;
+        }
+        r
+    }
 }
 
 #[cfg(test)]
@@ -87,8 +109,8 @@ mod tests {
             )
             .unwrap(),
         };
-        let bbjj = Babyjubjub::new();
-        let res = bbjj.add(&p, &q);
+        let bbj = Babyjubjub::new();
+        let res = bbj.add(&p, &q);
         assert_eq!(
             res.x.to_string(),
             "6890855772600357754907169075114257697580319025794532037257385534741338397365"
@@ -124,8 +146,8 @@ mod tests {
             )
             .unwrap(),
         };
-        let bbjj = Babyjubjub::new();
-        let res = bbjj.add(&p, &q);
+        let bbj = Babyjubjub::new();
+        let res = bbj.add(&p, &q);
         assert_eq!(
             res.x.to_string(),
             "7916061937171219682591368294088513039687205273691143098332585753343424131937"
@@ -133,6 +155,50 @@ mod tests {
         assert_eq!(
             res.y.to_string(),
             "14035240266687799601661095864649209771790948434046947201833777492504781204499"
+        );
+    }
+
+    #[test]
+    fn test_mul_scalar() {
+        let p: Point = Point {
+            x: BigInt::parse_bytes(
+                b"17777552123799933955779906779655732241715742912184938656739573121738514868268",
+                10,
+            )
+            .unwrap(),
+            y: BigInt::parse_bytes(
+                b"2626589144620713026669568689430873010625803728049924121243784502389097019475",
+                10,
+            )
+            .unwrap(),
+        };
+        let bbj = Babyjubjub::new();
+        let res_m = bbj.mul_scalar(p.clone(), 3.to_bigint().unwrap());
+        let res_a = bbj.add(&p, &p);
+        let res_a = bbj.add(&res_a, &p);
+        assert_eq!(res_m.x, res_a.x);
+        assert_eq!(
+            res_m.x.to_string(),
+            "19372461775513343691590086534037741906533799473648040012278229434133483800898"
+        );
+        assert_eq!(
+            res_m.y.to_string(),
+            "9458658722007214007257525444427903161243386465067105737478306991484593958249"
+        );
+
+        let n = BigInt::parse_bytes(
+            b"14035240266687799601661095864649209771790948434046947201833777492504781204499",
+            10,
+        )
+        .unwrap();
+        let res2 = bbj.mul_scalar(p.clone(), n);
+        assert_eq!(
+            res2.x.to_string(),
+            "17070357974431721403481313912716834497662307308519659060910483826664480189605"
+        );
+        assert_eq!(
+            res2.y.to_string(),
+            "4014745322800118607127020275658861516666525056516280575712425373174125159339"
         );
     }
 }
