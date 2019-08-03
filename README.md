@@ -7,7 +7,7 @@ Doing this in my free time to get familiar with Rust, do not use in production
 - [x] point addition
 - [x] point scalar multiplication
 - [ ] point compress&decompress parsers
-- [ ] eddsa keys generation
+- [x] eddsa keys generation
 - [ ] eddsa signature
 - [ ] eddsa signature verification
 

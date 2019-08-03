@@ -1,10 +1,15 @@
 [package]
 name = "babyjubjub-rs"
 version = "0.1.0"
-authors = ["arnaucube <arnaucube@gmail.com>"]
+authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2018"
 
 [dependencies]
 num = "0.2.0"
 num-bigint = {version = "0.2.2", features = ["rand"]}
 num-traits = "0.2.8"
+rand = "0.6.5"
+blake2 = "0.8"
+generic-array = "0.13.2"
+tiny-keccak = "1.5"
+rustc-hex = "1.0.0"

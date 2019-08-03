@@ -70,6 +70,10 @@ pub fn mod_inverse2(a: BigInt, q: BigInt) -> BigInt {
 }
 */
 
+pub fn concatenate_arrays<T: Clone>(x: &[T], y: &[T]) -> Vec<T> {
+    x.iter().chain(y).cloned().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
