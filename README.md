@@ -1,15 +1,17 @@
 # babyjubjub-rs
 BabyJubJub elliptic curve implementation in Rust
 
+Uses MiMC7 hash function: https://github.com/arnaucube/mimc-rs
+
 ## Warning
 Doing this in my free time to get familiar with Rust, do not use in production
 
 - [x] point addition
 - [x] point scalar multiplication
-- [ ] point compress&decompress parsers
+- [ ] {point, pk, signature} compress&decompress parsers
 - [x] eddsa keys generation
-- [ ] eddsa signature
-- [ ] eddsa signature verification
+- [x] eddsa signature
+- [x] eddsa signature verification
 
 
 

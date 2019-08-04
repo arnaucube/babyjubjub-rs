@@ -1,10 +1,12 @@
 extern crate generic_array;
+extern crate mimc_rs;
 extern crate num;
 extern crate num_bigint;
 extern crate num_traits;
 extern crate rand;
 
 use blake2::{Blake2b, Digest};
+use mimc_rs::Mimc7;
 
 use num_bigint::RandBigInt;
 
@@ -30,7 +32,7 @@ pub struct Babyjubjub {
     a: BigInt,
     q: BigInt,
     b8: Point,
-    order: BigInt,
+    // order: BigInt,
     sub_order: BigInt,
 }
 
@@ -67,7 +69,7 @@ impl Babyjubjub {
             a: a,
             q: q,
             b8: b8,
-            order: order,
+            // order: order,
             sub_order: sub_order,
         }
     }
@@ -115,6 +117,8 @@ impl Babyjubjub {
             exp = self.add(&exp, &exp);
             rem = rem >> 1;
         }
+        r.x = utils::modulus(&r.x, &self.q);
+        r.y = utils::modulus(&r.y, &self.q);
         r
     }
 
@@ -122,10 +126,9 @@ impl Babyjubjub {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
         let mut rng = rand::thread_rng();
         let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
-        println!("sk {:?}", sk_raw.to_string());
 
         let mut hasher = Blake2b::new();
-        let (_, sk_raw_bytes) = sk_raw.to_bytes_le();
+        let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
         hasher.input(sk_raw_bytes);
         let mut h = hasher.result();
 
@@ -147,28 +150,22 @@ impl Babyjubjub {
 
     pub fn sign(&self, sk: BigInt, msg: BigInt) -> Signature {
         // https://tools.ietf.org/html/rfc8032#section-5.1.6
-
         let mut hasher = Blake2b::new();
-        let (_, sk_bytes) = sk.to_bytes_le();
+        let (_, sk_bytes) = sk.to_bytes_be();
         hasher.input(sk_bytes);
         let mut h = hasher.result(); // h: hash(sk)
                                      // s: h[32:64]
         let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
-
-        let (_, msg_bytes) = msg.to_bytes_le();
+        let (_, msg_bytes) = msg.to_bytes_be();
         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
-        let mut r = BigInt::from_bytes_le(Sign::Plus, &r_bytes[..]);
-        r = r & &self.sub_order;
+        let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
+        r = utils::modulus(&r, &self.sub_order);
         let r8: Point = self.mul_scalar(self.b8.clone(), r.clone());
-        println!("r8 {:?}", r8);
         let a = &self.sk_to_pk(sk.clone());
 
-        // TODO WARNING!!! [TEMP] use MIMC7 hash function (MIMC7 to be implemented)
-        let hm_input = r8.x + r8.y + &a.x + &a.y + msg; // TEMP
-        let mut hasher = Blake2b::new();
-        let (_, sk_bytes) = sk.to_bytes_le();
-        hasher.input(sk_bytes);
-        let hm = BigInt::from_bytes_le(Sign::Plus, &hasher.result()[..]);
+        let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
+        let mimc7 = Mimc7::new();
+        let hm = mimc7.hash(hm_input);
 
         let mut s = sk << 3;
         s = hm * s;
@@ -176,9 +173,27 @@ impl Babyjubjub {
         s = s % &self.sub_order;
 
         Signature {
-            r_b8: self.b8.clone(),
+            r_b8: r8.clone(),
             s: s,
         }
+    }
+
+    pub fn verify(&self, pk: Point, sig: Signature, msg: BigInt) -> bool {
+        let hm_input = vec![
+            sig.r_b8.x.clone(),
+            sig.r_b8.y.clone(),
+            pk.x.clone(),
+            pk.y.clone(),
+            msg,
+        ];
+        let mimc7 = Mimc7::new();
+        let hm = mimc7.hash(hm_input);
+        let l = self.mul_scalar(self.b8.clone(), sig.s);
+        let r = self.add(&sig.r_b8, &self.mul_scalar(pk, 8.to_bigint().unwrap() * hm));
+        if l.x == r.x && l.y == r.y {
+            return true;
+        }
+        false
     }
 }
 
@@ -304,13 +319,15 @@ mod tests {
             "4014745322800118607127020275658861516666525056516280575712425373174125159339"
         );
     }
+
     #[test]
-    fn test_new_key_sign() {
+    fn test_new_key_sign_verify() {
         let bbjj = Babyjubjub::new();
         let sk = bbjj.new_key();
-        println!("sk {:?}", sk);
-        let sig = bbjj.sign(sk, 5.to_bigint().unwrap());
-        println!("sig {:?}", sig.r_b8);
-        println!("sig {:?}", sig.s);
+        let pk = bbjj.sk_to_pk(sk.clone());
+        let msg = 5.to_bigint().unwrap();
+        let sig = bbjj.sign(sk, msg.clone());
+        let v = bbjj.verify(pk, sig, msg);
+        assert_eq!(v, true);
     }
 }
