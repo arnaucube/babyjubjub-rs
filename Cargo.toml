@@ -1,8 +1,10 @@
 [package]
 name = "babyjubjub-rs"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2018"
+license = "GPL-3.0"
+description = "BabyJubJub elliptic curve implementation"
 
 [dependencies]
 num = "0.2.0"
