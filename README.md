@@ -4,7 +4,7 @@ BabyJubJub elliptic curve implementation in Rust
 Uses MiMC7 hash function: https://github.com/arnaucube/mimc-rs
 
 ## Warning
-Doing this in my free time to get familiar with Rust, do not use in production
+Doing this in my free time to get familiar with Rust, do not use in production.
 
 - [x] point addition
 - [x] point scalar multiplication

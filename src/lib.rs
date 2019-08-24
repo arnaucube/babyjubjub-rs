@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate arrayref;
 extern crate generic_array;
 extern crate mimc_rs;
 extern crate num;
@@ -8,9 +10,7 @@ extern crate rand;
 use blake2::{Blake2b, Digest};
 use mimc_rs::Mimc7;
 
-use num_bigint::RandBigInt;
-
-use num_bigint::{BigInt, Sign, ToBigInt};
+use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::{One, Zero};
 
 use generic_array::GenericArray;
@@ -22,9 +22,54 @@ pub struct Point {
     pub x: BigInt,
     pub y: BigInt,
 }
+
 pub struct Signature {
     r_b8: Point,
     s: BigInt,
+}
+
+pub struct PrivateKey {
+    bbjj: Babyjubjub,
+    key: BigInt,
+}
+
+impl PrivateKey {
+    pub fn public(&self) -> Point {
+        // https://tools.ietf.org/html/rfc8032#section-5.1.5
+        let pk = &self.bbjj.mul_scalar(self.bbjj.b8.clone(), self.key.clone());
+        pk.clone()
+    }
+
+    pub fn sign(&self, msg: BigInt) -> Signature {
+        // https://tools.ietf.org/html/rfc8032#section-5.1.6
+        let mut hasher = Blake2b::new();
+        let (_, sk_bytes) = self.key.to_bytes_be();
+        hasher.input(sk_bytes);
+        let mut h = hasher.result(); // h: hash(sk)
+                                     // s: h[32:64]
+        let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
+        let (_, msg_bytes) = msg.to_bytes_be();
+        let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
+        let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
+        r = utils::modulus(&r, &self.bbjj.sub_order);
+        let r8: Point = self.bbjj.mul_scalar(self.bbjj.b8.clone(), r.clone());
+        // let a = &self.sk_to_pk(sk.clone());
+        let a = &self.public();
+
+        let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
+        let mimc7 = Mimc7::new();
+        let hm = mimc7.hash(hm_input);
+
+        let mut s = &self.key << 3;
+        s = hm * s;
+        s = r + s;
+        s = s % &self.bbjj.sub_order;
+
+        Signature {
+            r_b8: r8.clone(),
+            s: s,
+        }
+    }
 }
 
 pub struct Babyjubjub {
@@ -82,17 +127,13 @@ impl Babyjubjub {
         let one: BigInt = One::one();
         let x_num: BigInt = &p.x * &q.y + &p.y * &q.x;
         let x_den: BigInt = &one + &self.d * &p.x * &q.x * &p.y * &q.y;
-        let x_den_inv = utils::mod_inverse0(&x_den, &self.q);
-        // let x_den_inv = utils::mod_inverse1(x_den, self.q.clone());
-        // let x_den_inv = utils::mod_inverse2(x_den, self.q.clone());
+        let x_den_inv = utils::modinv(&x_den, &self.q);
         let x: BigInt = utils::modulus(&(&x_num * &x_den_inv), &self.q);
 
         // y = (y1 * y2 - a * x1 * x2) / (1 - d * x1 * x2 * y1 * y2)
         let y_num = &p.y * &q.y - &self.a * &p.x * &q.x;
         let y_den = utils::modulus(&(&one - &self.d * &p.x * &q.x * &p.y * &q.y), &self.q);
-        let y_den_inv = utils::mod_inverse0(&y_den, &self.q);
-        // let y_den_inv = utils::mod_inverse1(y_den, self.q.clone());
-        // let y_den_inv = utils::mod_inverse2(y_den, self.q.clone());
+        let y_den_inv = utils::modinv(&y_den, &self.q);
         let y: BigInt = utils::modulus(&(&y_num * &y_den_inv), &self.q);
 
         Point { x: x, y: y }
@@ -122,7 +163,52 @@ impl Babyjubjub {
         r
     }
 
-    pub fn new_key(&self) -> BigInt {
+    pub fn compress(&self, p: Point) -> [u8; 32] {
+        let mut r: [u8; 32];
+        let (_, y_bytes) = p.y.to_bytes_le();
+        r = *array_ref!(y_bytes, 0, 32);
+        if &p.x > &(&self.q >> 1) {
+            r[31] = r[31] | 0x80;
+        }
+        r
+    }
+
+    pub fn decompress_point(&self, bb: [u8; 32]) -> Point {
+        // https://tools.ietf.org/html/rfc8032#section-5.2.3
+        let mut sign: bool = false;
+        let mut b = bb.clone();
+        if b[31] & 0x80 != 0x00 {
+            sign = true;
+            b[31] = b[31] & 0x7F;
+        }
+        let y: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[..]);
+        if y >= self.q {
+            // println!("ERROR0");
+        }
+        let one: BigInt = One::one();
+
+        // x^2 = (1 - y^2) / (a - d * y^2) (mod p)
+        let mut x: BigInt = utils::modulus(
+            &((one - utils::modulus(&(&y * &y), &self.q))
+                * utils::modinv(
+                    &utils::modulus(
+                        &(&self.a - utils::modulus(&(&self.d * (&y * &y)), &self.q)),
+                        &self.q,
+                    ),
+                    &self.q,
+                )),
+            &self.q,
+        );
+        x = utils::modsqrt(&x, &self.q);
+
+        if (sign && x >= Zero::zero()) || (!sign && x < Zero::zero()) {
+            x = x * -1.to_bigint().unwrap();
+        }
+        x = utils::modulus(&x, &self.q);
+        Point { x: x, y: y }
+    }
+
+    pub fn new_key(&self) -> PrivateKey {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
         let mut rng = rand::thread_rng();
         let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
@@ -138,43 +224,16 @@ impl Babyjubjub {
 
         let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
 
-        sk
-    }
-
-    pub fn sk_to_pk(&self, sk: BigInt) -> Point {
-        // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        // TODO this will be moved into a method of PrivateKey type
-        let pk = &self.mul_scalar(self.b8.clone(), sk);
-        pk.clone()
-    }
-
-    pub fn sign(&self, sk: BigInt, msg: BigInt) -> Signature {
-        // https://tools.ietf.org/html/rfc8032#section-5.1.6
-        let mut hasher = Blake2b::new();
-        let (_, sk_bytes) = sk.to_bytes_be();
-        hasher.input(sk_bytes);
-        let mut h = hasher.result(); // h: hash(sk)
-                                     // s: h[32:64]
-        let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
-        let (_, msg_bytes) = msg.to_bytes_be();
-        let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
-        let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
-        r = utils::modulus(&r, &self.sub_order);
-        let r8: Point = self.mul_scalar(self.b8.clone(), r.clone());
-        let a = &self.sk_to_pk(sk.clone());
-
-        let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
-        let mimc7 = Mimc7::new();
-        let hm = mimc7.hash(hm_input);
-
-        let mut s = sk << 3;
-        s = hm * s;
-        s = r + s;
-        s = s % &self.sub_order;
-
-        Signature {
-            r_b8: r8.clone(),
-            s: s,
+        let bbjj_new = Babyjubjub {
+            d: self.d.clone(),
+            a: self.a.clone(),
+            q: self.q.clone(),
+            b8: self.b8.clone(),
+            sub_order: self.sub_order.clone(),
+        };
+        PrivateKey {
+            bbjj: bbjj_new,
+            key: sk,
         }
     }
 
@@ -200,6 +259,8 @@ impl Babyjubjub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate rustc_hex;
+    use rustc_hex::ToHex;
 
     #[test]
     fn test_add_same_point() {
@@ -321,12 +382,48 @@ mod tests {
     }
 
     #[test]
-    fn test_new_key_sign_verify() {
+    fn test_point_compress_decompress() {
+        let bbjj = Babyjubjub::new();
+        let p: Point = Point {
+            x: BigInt::parse_bytes(
+                b"17777552123799933955779906779655732241715742912184938656739573121738514868268",
+                10,
+            )
+            .unwrap(),
+            y: BigInt::parse_bytes(
+                b"2626589144620713026669568689430873010625803728049924121243784502389097019475",
+                10,
+            )
+            .unwrap(),
+        };
+        let p_comp = bbjj.compress(p.clone());
+        assert_eq!(
+            p_comp[..].to_hex(),
+            "53b81ed5bffe9545b54016234682e7b2f699bd42a5e9eae27ff4051bc698ce85"
+        );
+        let p2 = bbjj.decompress_point(p_comp);
+        assert_eq!(p.x, p2.x);
+        assert_eq!(p.y, p2.y);
+    }
+
+    #[test]
+    fn test_new_key_sign_verify0() {
         let bbjj = Babyjubjub::new();
         let sk = bbjj.new_key();
-        let pk = bbjj.sk_to_pk(sk.clone());
+        let pk = sk.public();
         let msg = 5.to_bigint().unwrap();
-        let sig = bbjj.sign(sk, msg.clone());
+        let sig = sk.sign(msg.clone());
+        let v = bbjj.verify(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_new_key_sign_verify1() {
+        let bbjj = Babyjubjub::new();
+        let sk = bbjj.new_key();
+        let pk = sk.public();
+        let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
+        let sig = sk.sign(msg.clone());
         let v = bbjj.verify(pk, sig, msg);
         assert_eq!(v, true);
     }
