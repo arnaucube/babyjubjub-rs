@@ -53,7 +53,6 @@ impl PrivateKey {
         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
         r = utils::modulus(&r, &self.bbjj.sub_order);
         let r8: Point = self.bbjj.mul_scalar(self.bbjj.b8.clone(), r.clone());
-        // let a = &self.sk_to_pk(sk.clone());
         let a = &self.public();
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
@@ -163,7 +162,7 @@ impl Babyjubjub {
         r
     }
 
-    pub fn compress(&self, p: Point) -> [u8; 32] {
+    pub fn compress_point(&self, p: &Point) -> [u8; 32] {
         let mut r: [u8; 32];
         let (_, y_bytes) = p.y.to_bytes_le();
         r = *array_ref!(y_bytes, 0, 32);
@@ -206,6 +205,40 @@ impl Babyjubjub {
         }
         x = utils::modulus(&x, &self.q);
         Point { x: x, y: y }
+    }
+
+    pub fn compress_sig(&self, sig: &Signature) -> [u8; 64] {
+        let mut b: Vec<u8> = Vec::new();
+        b.append(&mut self.compress_point(&sig.r_b8).to_vec());
+        // let (_, mut s_bytes) = sig.s.to_bytes_le();
+        let (_, mut s_bytes) = sig.s.to_bytes_le();
+        println!("sbytes LENGTH {:?}", s_bytes.len());
+        // let mut s_32bytes: [u8; 32] = [0; 32];
+        // s_32bytes[..].copy_from_slice(&s_bytes[..]);
+        b.append(&mut s_bytes);
+        let mut r: [u8; 64] = [0; 64];
+        // r = *array_ref!(b, 0, 64);
+        // r.copy_from_slice(&b[..]);
+        println!("b LENGTH {:?}", b.len());
+        // if b.len() < 64 {
+        //     // let diff = 64 - b.len();
+        //     println!("less than 64, add padding");
+        //     let e: [u8; 1] = [0];
+        //     b.append(&mut e.to_vec());
+        // }
+        r.copy_from_slice(&b[..]);
+        println!("r {:?}", r.len());
+        r
+    }
+
+    pub fn decompress_sig(&self, b: &[u8; 64]) -> Signature {
+        let r_b8_bytes: [u8; 32] = *array_ref!(b[..32], 0, 32);
+        let s: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[32..]);
+        let r_b8 = &self.decompress_point(r_b8_bytes);
+        Signature {
+            r_b8: r_b8.clone(),
+            s: s,
+        }
     }
 
     pub fn new_key(&self) -> PrivateKey {
@@ -396,7 +429,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let p_comp = bbjj.compress(p.clone());
+        let p_comp = bbjj.compress_point(&p);
         assert_eq!(
             p_comp[..].to_hex(),
             "53b81ed5bffe9545b54016234682e7b2f699bd42a5e9eae27ff4051bc698ce85"
@@ -425,6 +458,25 @@ mod tests {
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let sig = sk.sign(msg.clone());
         let v = bbjj.verify(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_signature_compress_decompress() {
+        let bbjj = Babyjubjub::new();
+        let sk = bbjj.new_key();
+        let pk = sk.public();
+        let msg = 5.to_bigint().unwrap();
+        let sig = sk.sign(msg.clone());
+
+        let compressed_sig = bbjj.compress_sig(&sig);
+        println!("compressedsig {:?}", compressed_sig.to_hex());
+        let decompressed_sig = bbjj.decompress_sig(&compressed_sig);
+        assert_eq!(&sig.r_b8.x, &decompressed_sig.r_b8.x);
+        assert_eq!(&sig.r_b8.y, &decompressed_sig.r_b8.y);
+        assert_eq!(&sig.s, &decompressed_sig.s);
+
+        let v = bbjj.verify(pk, decompressed_sig, msg);
         assert_eq!(v, true);
     }
 }
