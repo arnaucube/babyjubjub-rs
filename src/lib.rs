@@ -9,6 +9,7 @@ extern crate rand;
 
 use blake2::{Blake2b, Digest};
 use mimc_rs::Mimc7;
+use poseidon_rs::Poseidon;
 use std::cmp::min;
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
@@ -196,7 +197,7 @@ impl PrivateKey {
         pk.clone()
     }
 
-    pub fn sign(&self, msg: BigInt) -> Signature {
+    pub fn sign_mimc(&self, msg: BigInt) -> Result<Signature, String> {
         // https://tools.ietf.org/html/rfc8032#section-5.1.6
         let mut hasher = Blake2b::new();
         let (_, sk_bytes) = self.key.to_bytes_be();
@@ -213,17 +214,52 @@ impl PrivateKey {
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
         let mimc7 = Mimc7::new();
-        let hm = mimc7.hash(hm_input);
+        let hm = match mimc7.hash(hm_input) {
+            Result::Err(err) => return Err(err.to_string()),
+            Result::Ok(hm) => hm,
+        };
 
         let mut s = &self.key << 3;
         s = hm * s;
         s = r + s;
         s = s % &SUBORDER.clone();
 
-        Signature {
+        Ok(Signature {
             r_b8: r8.clone(),
             s: s,
-        }
+        })
+    }
+    pub fn sign_poseidon(&self, msg: BigInt) -> Result<Signature, String> {
+        // https://tools.ietf.org/html/rfc8032#section-5.1.6
+        let mut hasher = Blake2b::new();
+        let (_, sk_bytes) = self.key.to_bytes_be();
+        hasher.input(sk_bytes);
+        let mut h = hasher.result(); // h: hash(sk)
+                                     // s: h[32:64]
+        let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
+        let (_, msg_bytes) = msg.to_bytes_be();
+        let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
+        let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
+        r = utils::modulus(&r, &SUBORDER);
+        let r8: Point = B8.mul_scalar(r.clone());
+        let a = &self.public();
+
+        let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
+        let poseidon = Poseidon::new();
+        let hm = match poseidon.hash(hm_input) {
+            Result::Err(err) => return Err(err.to_string()),
+            Result::Ok(hm) => hm,
+        };
+
+        let mut s = &self.key << 3;
+        s = hm * s;
+        s = r + s;
+        s = s % &SUBORDER.clone();
+
+        Ok(Signature {
+            r_b8: r8.clone(),
+            s: s,
+        })
     }
 }
 
@@ -246,7 +282,7 @@ pub fn new_key() -> PrivateKey {
     PrivateKey { key: sk }
 }
 
-pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
+pub fn verify_mimc(pk: Point, sig: Signature, msg: BigInt) -> bool {
     let hm_input = vec![
         sig.r_b8.x.clone(),
         sig.r_b8.y.clone(),
@@ -255,7 +291,30 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         msg,
     ];
     let mimc7 = Mimc7::new();
-    let hm = mimc7.hash(hm_input);
+    let hm = match mimc7.hash(hm_input) {
+        Result::Err(_) => return false,
+        Result::Ok(hm) => hm,
+    };
+    let l = B8.mul_scalar(sig.s);
+    let r = sig.r_b8.add(&pk.mul_scalar(8.to_bigint().unwrap() * hm));
+    if l.x == r.x && l.y == r.y {
+        return true;
+    }
+    false
+}
+pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
+    let hm_input = vec![
+        sig.r_b8.x.clone(),
+        sig.r_b8.y.clone(),
+        pk.x.clone(),
+        pk.y.clone(),
+        msg,
+    ];
+    let poseidon = Poseidon::new();
+    let hm = match poseidon.hash(hm_input) {
+        Result::Err(_) => return false,
+        Result::Ok(hm) => hm,
+    };
     let l = B8.mul_scalar(sig.s);
     let r = sig.r_b8.add(&pk.mul_scalar(8.to_bigint().unwrap() * hm));
     if l.x == r.x && l.y == r.y {
@@ -387,6 +446,45 @@ mod tests {
     }
 
     #[test]
+    fn test_new_key_sign_verify_mimc_0() {
+        let sk = new_key();
+        let pk = sk.public();
+        let msg = 5.to_bigint().unwrap();
+        let sig = sk.sign_mimc(msg.clone()).unwrap();
+        let v = verify_mimc(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_new_key_sign_verify_mimc_1() {
+        let sk = new_key();
+        let pk = sk.public();
+        let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
+        let sig = sk.sign_mimc(msg.clone()).unwrap();
+        let v = verify_mimc(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+    #[test]
+    fn test_new_key_sign_verify_poseidon_0() {
+        let sk = new_key();
+        let pk = sk.public();
+        let msg = 5.to_bigint().unwrap();
+        let sig = sk.sign_poseidon(msg.clone()).unwrap();
+        let v = verify_poseidon(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+
+    #[test]
+    fn test_new_key_sign_verify_poseidon_1() {
+        let sk = new_key();
+        let pk = sk.public();
+        let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
+        let sig = sk.sign_poseidon(msg.clone()).unwrap();
+        let v = verify_poseidon(pk, sig, msg);
+        assert_eq!(v, true);
+    }
+
+    #[test]
     fn test_point_compress_decompress() {
         let p: Point = Point {
             x: BigInt::parse_bytes(
@@ -408,26 +506,6 @@ mod tests {
         let p2 = decompress_point(p_comp).unwrap();
         assert_eq!(p.x, p2.x);
         assert_eq!(p.y, p2.y);
-    }
-
-    #[test]
-    fn test_new_key_sign_verify0() {
-        let sk = new_key();
-        let pk = sk.public();
-        let msg = 5.to_bigint().unwrap();
-        let sig = sk.sign(msg.clone());
-        let v = verify(pk, sig, msg);
-        assert_eq!(v, true);
-    }
-
-    #[test]
-    fn test_new_key_sign_verify1() {
-        let sk = new_key();
-        let pk = sk.public();
-        let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
-        let sig = sk.sign(msg.clone());
-        let v = verify(pk, sig, msg);
-        assert_eq!(v, true);
     }
 
     #[test]
@@ -498,7 +576,7 @@ mod tests {
         for i in 0..5 {
             let msg_raw = "123456".to_owned() + &i.to_string();
             let msg = BigInt::parse_bytes(msg_raw.as_bytes(), 10).unwrap();
-            let sig = sk.sign(msg.clone());
+            let sig = sk.sign_mimc(msg.clone()).unwrap();
 
             let compressed_sig = sig.compress();
             let decompressed_sig = decompress_signature(&compressed_sig).unwrap();
@@ -506,7 +584,7 @@ mod tests {
             assert_eq!(&sig.r_b8.y, &decompressed_sig.r_b8.y);
             assert_eq!(&sig.s, &decompressed_sig.s);
 
-            let v = verify(pk.clone(), decompressed_sig, msg);
+            let v = verify_mimc(pk.clone(), decompressed_sig, msg);
             assert_eq!(v, true);
         }
     }

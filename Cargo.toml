@@ -1,10 +1,12 @@
 [package]
 name = "babyjubjub-rs"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2018"
 license = "GPL-3.0"
 description = "BabyJubJub elliptic curve implementation"
+repository = "https://github.com/arnaucube/babyjubjub-rs"
+readme = "README.md"
 
 [dependencies]
 num = "0.2.0"
@@ -15,6 +17,7 @@ blake2 = "0.8"
 generic-array = "0.13.2"
 tiny-keccak = "1.5"
 rustc-hex = "1.0.0"
-mimc-rs = "0.0.1"
+mimc-rs = "0.0.2"
+poseidon-rs = "0.0.1"
 arrayref = "0.3.5"
 lazy_static = "1.4.0"

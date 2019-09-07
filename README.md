@@ -1,12 +1,13 @@
 # babyjubjub-rs [![Crates.io](https://img.shields.io/crates/v/babyjubjub-rs.svg)](https://crates.io/crates/babyjubjub-rs) [![Build Status](https://travis-ci.org/arnaucube/babyjubjub-rs.svg?branch=master)](https://travis-ci.org/arnaucube/babyjubjub-rs)
-BabyJubJub elliptic curve implementation in Rust.
-
-BabyJubJub is a twisted edwards curve embedded in the curve of BN128.
+BabyJubJub elliptic curve implementation in Rust. Is a twisted edwards curve embedded in the curve of BN128.
 
 BabyJubJub curve explanation: https://medium.com/zokrates/efficient-ecc-in-zksnarks-using-zokrates-bd9ae37b8186
 
 Uses:
 - MiMC7 hash function: https://github.com/arnaucube/mimc-rs
+- Poseidon hash function https://github.com/arnaucube/poseidon-rs
+
+Compatible with the BabyJubJub Go implementation from https://github.com/iden3/go-iden3-crypto
 
 ## Warning
 Doing this in my free time to get familiar with Rust, do not use in production.
@@ -16,7 +17,7 @@ Doing this in my free time to get familiar with Rust, do not use in production.
 - [x] eddsa keys generation
 - [x] eddsa signature
 - [x] eddsa signature verification
-- [ ] {point, pk, signature} compress&decompress parsers
+- [x] {point, pk, signature} compress&decompress parsers
 
 
 
