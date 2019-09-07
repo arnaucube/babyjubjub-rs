@@ -9,6 +9,7 @@ extern crate rand;
 
 use blake2::{Blake2b, Digest};
 use mimc_rs::Mimc7;
+use std::cmp::min;
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::{One, Zero};
@@ -105,17 +106,18 @@ impl Point {
     }
 
     pub fn compress(&self) -> [u8; 32] {
-        let mut r: [u8; 32];
+        let mut r: [u8; 32] = [0; 32];
         let (_, y_bytes) = self.y.to_bytes_le();
-        r = *array_ref!(y_bytes, 0, 32);
-        if &self.x > &(&Q.clone() >> 1) {
+        let len = min(y_bytes.len(), r.len());
+        r[..len].copy_from_slice(&y_bytes[..len]);
+        if &self.x >= &(&Q.clone() >> 1) {
             r[31] = r[31] | 0x80;
         }
         r
     }
 }
 
-pub fn decompress_point(bb: [u8; 32]) -> Point {
+pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     // https://tools.ietf.org/html/rfc8032#section-5.2.3
     let mut sign: bool = false;
     let mut b = bb.clone();
@@ -125,7 +127,7 @@ pub fn decompress_point(bb: [u8; 32]) -> Point {
     }
     let y: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[..]);
     if y >= Q.clone() {
-        // println!("ERROR0");
+        return Err("y outside the Finite Field over R".to_string());
     }
     let one: BigInt = One::one();
 
@@ -143,11 +145,11 @@ pub fn decompress_point(bb: [u8; 32]) -> Point {
     );
     x = utils::modsqrt(&x, &Q);
 
-    if (sign && x >= Zero::zero()) || (!sign && x < Zero::zero()) {
+    if sign && !(&x > &(&Q.clone() >> 1)) || (!sign && (&x > &(&Q.clone() >> 1))) {
         x = x * -1.to_bigint().unwrap();
     }
     x = utils::modulus(&x, &Q);
-    Point { x: x, y: y }
+    Ok(Point { x: x, y: y })
 }
 
 pub struct Signature {
@@ -159,35 +161,27 @@ impl Signature {
     pub fn compress(&self) -> [u8; 64] {
         let mut b: Vec<u8> = Vec::new();
         b.append(&mut self.r_b8.compress().to_vec());
-        // let (_, mut s_bytes) = self.s.to_bytes_le();
-        let (_, mut s_bytes) = self.s.to_bytes_le();
-        println!("sbytes LENGTH {:?}", s_bytes.len());
-        // let mut s_32bytes: [u8; 32] = [0; 32];
-        // s_32bytes[..].copy_from_slice(&s_bytes[..]);
-        b.append(&mut s_bytes);
+        let (_, s_bytes) = self.s.to_bytes_le();
+        let mut s_32bytes: [u8; 32] = [0; 32];
+        let len = min(s_bytes.len(), s_32bytes.len());
+        s_32bytes[..len].copy_from_slice(&s_bytes[..len]);
+        b.append(&mut s_32bytes.to_vec());
         let mut r: [u8; 64] = [0; 64];
-        // r = *array_ref!(b, 0, 64);
-        // r.copy_from_slice(&b[..]);
-        println!("b LENGTH {:?}", b.len());
-        // if b.len() < 64 {
-        //     // let diff = 64 - b.len();
-        //     println!("less than 64, add padding");
-        //     let e: [u8; 1] = [0];
-        //     b.append(&mut e.to_vec());
-        // }
         r[..].copy_from_slice(&b[..]);
-        println!("r {:?}", r.len());
         r
     }
 }
 
-pub fn decompress_signature(b: &[u8; 64]) -> Signature {
+pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
     let r_b8_bytes: [u8; 32] = *array_ref!(b[..32], 0, 32);
     let s: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[32..]);
     let r_b8 = decompress_point(r_b8_bytes);
-    Signature {
-        r_b8: r_b8.clone(),
-        s: s,
+    match r_b8 {
+        Result::Err(err) => return Err(err.to_string()),
+        Result::Ok(res) => Ok(Signature {
+            r_b8: res.clone(),
+            s: s,
+        }),
     }
 }
 
@@ -274,7 +268,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
 mod tests {
     use super::*;
     extern crate rustc_hex;
-    use rustc_hex::ToHex;
+    use rustc_hex::{FromHex, ToHex};
 
     #[test]
     fn test_add_same_point() {
@@ -411,7 +405,7 @@ mod tests {
             p_comp[..].to_hex(),
             "53b81ed5bffe9545b54016234682e7b2f699bd42a5e9eae27ff4051bc698ce85"
         );
-        let p2 = decompress_point(p_comp);
+        let p2 = decompress_point(p_comp).unwrap();
         assert_eq!(p.x, p2.x);
         assert_eq!(p.y, p2.y);
     }
@@ -437,19 +431,77 @@ mod tests {
     }
 
     #[test]
+    fn test_point_decompress0() {
+        let y_bytes_raw = "b5328f8791d48f20bec6e481d91c7ada235f1facf22547901c18656b6c3e042f"
+            .from_hex()
+            .unwrap();
+        let mut y_bytes: [u8; 32] = [0; 32];
+        y_bytes.copy_from_slice(&y_bytes_raw);
+        let p = decompress_point(y_bytes).unwrap();
+
+        let expected_px_raw = "b86cc8d9c97daef0afe1a4753c54fb2d8a530dc74c7eee4e72b3fdf2496d2113"
+            .from_hex()
+            .unwrap();
+        let mut e_px_bytes: [u8; 32] = [0; 32];
+        e_px_bytes.copy_from_slice(&expected_px_raw);
+        let expected_px: BigInt = BigInt::from_bytes_le(Sign::Plus, &e_px_bytes);
+        assert_eq!(&p.x, &expected_px);
+    }
+
+    #[test]
+    fn test_point_decompress1() {
+        let y_bytes_raw = "70552d3ff548e09266ded29b33ce75139672b062b02aa66bb0d9247ffecf1d0b"
+            .from_hex()
+            .unwrap();
+        let mut y_bytes: [u8; 32] = [0; 32];
+        y_bytes.copy_from_slice(&y_bytes_raw);
+        let p = decompress_point(y_bytes).unwrap();
+
+        let expected_px_raw = "30f1635ba7d56f9cb32c3ffbe6dca508a68c7f43936af11a23c785ce98cb3404"
+            .from_hex()
+            .unwrap();
+        let mut e_px_bytes: [u8; 32] = [0; 32];
+        e_px_bytes.copy_from_slice(&expected_px_raw);
+        let expected_px: BigInt = BigInt::from_bytes_le(Sign::Plus, &e_px_bytes);
+        assert_eq!(&p.x, &expected_px);
+    }
+
+    #[test]
+    fn test_point_decompress_loop() {
+        for _ in 0..5 {
+            let mut rng = rand::thread_rng();
+            let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
+            let mut hasher = Blake2b::new();
+            let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
+            hasher.input(sk_raw_bytes);
+            let mut h = hasher.result();
+
+            h[0] = h[0] & 0xF8;
+            h[31] = h[31] & 0x7F;
+            h[31] = h[31] | 0x40;
+
+            let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
+            let point = B8.mul_scalar(sk.clone());
+            let cmp_point = point.compress();
+            let dcmp_point = decompress_point(cmp_point).unwrap();
+
+            assert_eq!(&point.x, &dcmp_point.x);
+            assert_eq!(&point.y, &dcmp_point.y);
+        }
+    }
+
+    #[test]
     fn test_signature_compress_decompress() {
         let sk = new_key();
         let pk = sk.public();
 
-        for i in 0..1 {
-            println!("i {:?}", i);
+        for i in 0..5 {
             let msg_raw = "123456".to_owned() + &i.to_string();
             let msg = BigInt::parse_bytes(msg_raw.as_bytes(), 10).unwrap();
             let sig = sk.sign(msg.clone());
 
             let compressed_sig = sig.compress();
-            println!("compressedsig {:?}", compressed_sig.to_hex());
-            let decompressed_sig = decompress_signature(&compressed_sig);
+            let decompressed_sig = decompress_signature(&compressed_sig).unwrap();
             assert_eq!(&sig.r_b8.x, &decompressed_sig.r_b8.x);
             assert_eq!(&sig.r_b8.y, &decompressed_sig.r_b8.y);
             assert_eq!(&sig.s, &decompressed_sig.s);

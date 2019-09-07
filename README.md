@@ -3,7 +3,10 @@ BabyJubJub elliptic curve implementation in Rust.
 
 BabyJubJub is a twisted edwards curve embedded in the curve of BN128.
 
-Uses MiMC7 hash function: https://github.com/arnaucube/mimc-rs
+BabyJubJub curve explanation: https://medium.com/zokrates/efficient-ecc-in-zksnarks-using-zokrates-bd9ae37b8186
+
+Uses:
+- MiMC7 hash function: https://github.com/arnaucube/mimc-rs
 
 ## Warning
 Doing this in my free time to get familiar with Rust, do not use in production.
