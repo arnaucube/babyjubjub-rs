@@ -62,7 +62,7 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn add(&self, q: &Point) -> Point {
+    pub fn add(&self, q: &Point) -> Result<Point, String> {
         // x = (x1*y2+y1*x2)/(c*(1+d*x1*x2*y1*y2))
         // y = (y1*y2-x1*x2)/(c*(1-d*x1*x2*y1*y2))
 
@@ -70,19 +70,19 @@ impl Point {
         let one: BigInt = One::one();
         let x_num: BigInt = &self.x * &q.y + &self.y * &q.x;
         let x_den: BigInt = &one + &D.clone() * &self.x * &q.x * &self.y * &q.y;
-        let x_den_inv = utils::modinv(&x_den, &Q);
+        let x_den_inv = utils::modinv(&x_den, &Q)?;
         let x: BigInt = utils::modulus(&(&x_num * &x_den_inv), &Q);
 
         // y = (y1 * y2 - a * x1 * x2) / (1 - d * x1 * x2 * y1 * y2)
         let y_num = &self.y * &q.y - &A.clone() * &self.x * &q.x;
         let y_den = utils::modulus(&(&one - &D.clone() * &self.x * &q.x * &self.y * &q.y), &Q);
-        let y_den_inv = utils::modinv(&y_den, &Q);
+        let y_den_inv = utils::modinv(&y_den, &Q)?;
         let y: BigInt = utils::modulus(&(&y_num * &y_den_inv), &Q);
 
-        Point { x: x, y: y }
+        Ok(Point { x: x, y: y })
     }
 
-    pub fn mul_scalar(&self, n: BigInt) -> Point {
+    pub fn mul_scalar(&self, n: BigInt) -> Result<Point, String> {
         // TODO use & in n to avoid clones on function call
         let mut r: Point = Point {
             x: Zero::zero(),
@@ -96,14 +96,14 @@ impl Point {
         while rem != zero {
             let is_odd = &rem & &one == one;
             if is_odd == true {
-                r = r.add(&exp);
+                r = r.add(&exp)?;
             }
-            exp = exp.add(&exp);
+            exp = exp.add(&exp)?;
             rem = rem >> 1;
         }
         r.x = utils::modulus(&r.x, &Q);
         r.y = utils::modulus(&r.y, &Q);
-        r
+        Ok(r)
     }
 
     pub fn compress(&self) -> [u8; 32] {
@@ -111,7 +111,7 @@ impl Point {
         let (_, y_bytes) = self.y.to_bytes_le();
         let len = min(y_bytes.len(), r.len());
         r[..len].copy_from_slice(&y_bytes[..len]);
-        if &self.x >= &(&Q.clone() >> 1) {
+        if &self.x > &(&Q.clone() >> 1) {
             r[31] = r[31] | 0x80;
         }
         r
@@ -133,18 +133,15 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     let one: BigInt = One::one();
 
     // x^2 = (1 - y^2) / (a - d * y^2) (mod p)
-    let mut x: BigInt = utils::modulus(
-        &((one - utils::modulus(&(&y * &y), &Q))
-            * utils::modinv(
-                &utils::modulus(
-                    &(&A.clone() - utils::modulus(&(&D.clone() * (&y * &y)), &Q)),
-                    &Q,
-                ),
-                &Q,
-            )),
+    let den = utils::modinv(
+        &utils::modulus(
+            &(&A.clone() - utils::modulus(&(&D.clone() * (&y * &y)), &Q)),
+            &Q,
+        ),
         &Q,
-    );
-    x = utils::modsqrt(&x, &Q);
+    )?;
+    let mut x: BigInt = utils::modulus(&((one - utils::modulus(&(&y * &y), &Q)) * den), &Q);
+    x = utils::modsqrt(&x, &Q)?;
 
     if sign && !(&x > &(&Q.clone() >> 1)) || (!sign && (&x > &(&Q.clone() >> 1))) {
         x = x * -1.to_bigint().unwrap();
@@ -191,10 +188,10 @@ pub struct PrivateKey {
 }
 
 impl PrivateKey {
-    pub fn public(&self) -> Point {
+    pub fn public(&self) -> Result<Point, String> {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        let pk = B8.mul_scalar(self.key.clone());
-        pk.clone()
+        let pk = B8.mul_scalar(self.key.clone())?;
+        Ok(pk.clone())
     }
 
     pub fn sign_mimc(&self, msg: BigInt) -> Result<Signature, String> {
@@ -209,15 +206,12 @@ impl PrivateKey {
         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(r.clone());
-        let a = &self.public();
+        let r8: Point = B8.mul_scalar(r.clone())?;
+        let a = &self.public()?;
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
         let mimc7 = Mimc7::new();
-        let hm = match mimc7.hash(hm_input) {
-            Result::Err(err) => return Err(err.to_string()),
-            Result::Ok(hm) => hm,
-        };
+        let hm = mimc7.hash(hm_input)?;
 
         let mut s = &self.key << 3;
         s = hm * s;
@@ -241,15 +235,12 @@ impl PrivateKey {
         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(r.clone());
-        let a = &self.public();
+        let r8: Point = B8.mul_scalar(r.clone())?;
+        let a = &self.public()?;
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
         let poseidon = Poseidon::new();
-        let hm = match poseidon.hash(hm_input) {
-            Result::Err(err) => return Err(err.to_string()),
-            Result::Ok(hm) => hm,
-        };
+        let hm = poseidon.hash(hm_input)?;
 
         let mut s = &self.key << 3;
         s = hm * s;
@@ -295,8 +286,17 @@ pub fn verify_mimc(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = B8.mul_scalar(sig.s);
-    let r = sig.r_b8.add(&pk.mul_scalar(8.to_bigint().unwrap() * hm));
+    let l = match B8.mul_scalar(sig.s) {
+        Result::Err(_) => return false,
+        Result::Ok(l) => l,
+    };
+    let r = match sig
+        .r_b8
+        .add(&pk.mul_scalar(8.to_bigint().unwrap() * hm).unwrap())
+    {
+        Result::Err(_) => return false,
+        Result::Ok(r) => r,
+    };
     if l.x == r.x && l.y == r.y {
         return true;
     }
@@ -315,8 +315,17 @@ pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = B8.mul_scalar(sig.s);
-    let r = sig.r_b8.add(&pk.mul_scalar(8.to_bigint().unwrap() * hm));
+    let l = match B8.mul_scalar(sig.s) {
+        Result::Err(_) => return false,
+        Result::Ok(l) => l,
+    };
+    let r = match sig
+        .r_b8
+        .add(&pk.mul_scalar(8.to_bigint().unwrap() * hm).unwrap())
+    {
+        Result::Err(_) => return false,
+        Result::Ok(r) => r,
+    };
     if l.x == r.x && l.y == r.y {
         return true;
     }
@@ -355,7 +364,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let res = p.add(&q);
+        let res = p.add(&q).unwrap();
         assert_eq!(
             res.x.to_string(),
             "6890855772600357754907169075114257697580319025794532037257385534741338397365"
@@ -391,7 +400,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let res = p.add(&q);
+        let res = p.add(&q).unwrap();
         assert_eq!(
             res.x.to_string(),
             "7916061937171219682591368294088513039687205273691143098332585753343424131937"
@@ -416,9 +425,9 @@ mod tests {
             )
             .unwrap(),
         };
-        let res_m = p.mul_scalar(3.to_bigint().unwrap());
-        let res_a = p.add(&p);
-        let res_a = res_a.add(&p);
+        let res_m = p.mul_scalar(3.to_bigint().unwrap()).unwrap();
+        let res_a = p.add(&p).unwrap();
+        let res_a = res_a.add(&p).unwrap();
         assert_eq!(res_m.x, res_a.x);
         assert_eq!(
             res_m.x.to_string(),
@@ -434,7 +443,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let res2 = p.mul_scalar(n);
+        let res2 = p.mul_scalar(n).unwrap();
         assert_eq!(
             res2.x.to_string(),
             "17070357974431721403481313912716834497662307308519659060910483826664480189605"
@@ -448,7 +457,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_mimc_0() {
         let sk = new_key();
-        let pk = sk.public();
+        let pk = sk.public().unwrap();
         let msg = 5.to_bigint().unwrap();
         let sig = sk.sign_mimc(msg.clone()).unwrap();
         let v = verify_mimc(pk, sig, msg);
@@ -458,7 +467,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_mimc_1() {
         let sk = new_key();
-        let pk = sk.public();
+        let pk = sk.public().unwrap();
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let sig = sk.sign_mimc(msg.clone()).unwrap();
         let v = verify_mimc(pk, sig, msg);
@@ -467,7 +476,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_poseidon_0() {
         let sk = new_key();
-        let pk = sk.public();
+        let pk = sk.public().unwrap();
         let msg = 5.to_bigint().unwrap();
         let sig = sk.sign_poseidon(msg.clone()).unwrap();
         let v = verify_poseidon(pk, sig, msg);
@@ -477,7 +486,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_poseidon_1() {
         let sk = new_key();
-        let pk = sk.public();
+        let pk = sk.public().unwrap();
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let sig = sk.sign_poseidon(msg.clone()).unwrap();
         let v = verify_poseidon(pk, sig, msg);
@@ -559,7 +568,7 @@ mod tests {
             h[31] = h[31] | 0x40;
 
             let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
-            let point = B8.mul_scalar(sk.clone());
+            let point = B8.mul_scalar(sk.clone()).unwrap();
             let cmp_point = point.compress();
             let dcmp_point = decompress_point(cmp_point).unwrap();
 
@@ -571,7 +580,7 @@ mod tests {
     #[test]
     fn test_signature_compress_decompress() {
         let sk = new_key();
-        let pk = sk.public();
+        let pk = sk.public().unwrap();
 
         for i in 0..5 {
             let msg_raw = "123456".to_owned() + &i.to_string();

@@ -9,11 +9,15 @@ pub fn modulus(a: &BigInt, m: &BigInt) -> BigInt {
     ((a % m) + m) % m
 }
 
-pub fn modinv(a: &BigInt, q: &BigInt) -> BigInt {
+pub fn modinv(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
+    let big_zero: BigInt = Zero::zero();
+    if a == &big_zero {
+        return Err("no mod inv of Zero".to_string());
+    }
+
     let mut mn = (q.clone(), a.clone());
     let mut xy: (BigInt, BigInt) = (Zero::zero(), One::one());
 
-    let big_zero: BigInt = Zero::zero();
     while mn.1 != big_zero {
         xy = (xy.1.clone(), xy.0 - (mn.0.clone() / mn.1.clone()) * xy.1);
         mn = (mn.1.clone(), modulus(&mn.0, &mn.1));
@@ -22,7 +26,7 @@ pub fn modinv(a: &BigInt, q: &BigInt) -> BigInt {
     while xy.0 < Zero::zero() {
         xy.0 = modulus(&xy.0, q);
     }
-    xy.0
+    Ok(xy.0)
 }
 
 /*
@@ -102,7 +106,7 @@ pub fn concatenate_arrays<T: Clone>(x: &[T], y: &[T]) -> Vec<T> {
     x.iter().chain(y).cloned().collect()
 }
 
-pub fn modsqrt(a: &BigInt, q: &BigInt) -> BigInt {
+pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     // Tonelli-Shanks Algorithm (https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm)
     //
     // This implementation is following the Go lang core implementation https://golang.org/src/math/big/int.go?s=23173:23210#L859
@@ -112,15 +116,14 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> BigInt {
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
     if legendre_symbol(&a, q) != 1 {
-        // not a mod p square
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if a == &zero {
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if q == &2.to_bigint().unwrap() {
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
         let r = a.modpow(&((q + one) / 4), &q);
-        return r;
+        return Ok(r);
     }
 
     let mut s = q - &one;
@@ -149,7 +152,7 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> BigInt {
         }
 
         if m == zero {
-            return y.clone();
+            return Ok(y.clone());
         }
 
         t = g.modpow(&(2.to_bigint().unwrap().modpow(&(&r - &m - 1), q)), q);
@@ -161,7 +164,7 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> BigInt {
 }
 
 #[allow(dead_code)]
-pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> BigInt {
+pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     // Tonelli-Shanks Algorithm (https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm)
     //
     // This implementation is following this Python implementation by Dusk https://github.com/dusk-network/dusk-zerocaf/blob/master/tools/tonelli.py
@@ -169,15 +172,14 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> BigInt {
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
     if legendre_symbol(&a, q) != 1 {
-        // not a mod p square
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if a == &zero {
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if q == &2.to_bigint().unwrap() {
-        return zero;
+        return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
         let r = a.modpow(&((q + one) / 4), &q);
-        return r;
+        return Ok(r);
     }
 
     let mut p = q - &one;
@@ -214,7 +216,7 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> BigInt {
         c = modulus(&(&b * &b), q);
         m = i.clone();
     }
-    return x;
+    return Ok(x);
 }
 
 pub fn legendre_symbol(a: &BigInt, q: &BigInt) -> i32 {
@@ -235,7 +237,10 @@ mod tests {
     fn test_mod_inverse() {
         let a = BigInt::parse_bytes(b"123456789123456789123456789123456789123456789", 10).unwrap();
         let b = BigInt::parse_bytes(b"12345678", 10).unwrap();
-        assert_eq!(modinv(&a, &b), BigInt::parse_bytes(b"641883", 10).unwrap());
+        assert_eq!(
+            modinv(&a, &b).unwrap(),
+            BigInt::parse_bytes(b"641883", 10).unwrap()
+        );
     }
 
     #[test]
@@ -252,11 +257,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            (modsqrt(&a, &q)).to_string(),
+            (modsqrt(&a, &q).unwrap()).to_string(),
             "5464794816676661649783249706827271879994893912039750480019443499440603127256"
         );
         assert_eq!(
-            (modsqrt_v2(&a, &q)).to_string(),
+            (modsqrt_v2(&a, &q).unwrap()).to_string(),
             "5464794816676661649783249706827271879994893912039750480019443499440603127256"
         );
     }
