@@ -82,13 +82,13 @@ impl Point {
         Ok(Point { x: x, y: y })
     }
 
-    pub fn mul_scalar(&self, n: BigInt) -> Result<Point, String> {
+    pub fn mul_scalar(&self, n: &BigInt) -> Result<Point, String> {
         // TODO use & in n to avoid clones on function call
         let mut r: Point = Point {
             x: Zero::zero(),
             y: One::one(),
         };
-        let mut rem: BigInt = n;
+        let mut rem: BigInt = n.clone();
         let mut exp: Point = self.clone();
 
         let zero: BigInt = Zero::zero();
@@ -190,7 +190,7 @@ pub struct PrivateKey {
 impl PrivateKey {
     pub fn public(&self) -> Result<Point, String> {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        let pk = B8.mul_scalar(self.key.clone())?;
+        let pk = B8.mul_scalar(&self.key)?;
         Ok(pk.clone())
     }
 
@@ -206,7 +206,7 @@ impl PrivateKey {
         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(r.clone())?;
+        let r8: Point = B8.mul_scalar(&r)?;
         let a = &self.public()?;
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
@@ -235,7 +235,7 @@ impl PrivateKey {
         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(r.clone())?;
+        let r8: Point = B8.mul_scalar(&r)?;
         let a = &self.public()?;
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
@@ -286,13 +286,13 @@ pub fn verify_mimc(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = match B8.mul_scalar(sig.s) {
+    let l = match B8.mul_scalar(&sig.s) {
         Result::Err(_) => return false,
         Result::Ok(l) => l,
     };
     let r = match sig
         .r_b8
-        .add(&pk.mul_scalar(8.to_bigint().unwrap() * hm).unwrap())
+        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm)).unwrap())
     {
         Result::Err(_) => return false,
         Result::Ok(r) => r,
@@ -315,13 +315,13 @@ pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = match B8.mul_scalar(sig.s) {
+    let l = match B8.mul_scalar(&sig.s) {
         Result::Err(_) => return false,
         Result::Ok(l) => l,
     };
     let r = match sig
         .r_b8
-        .add(&pk.mul_scalar(8.to_bigint().unwrap() * hm).unwrap())
+        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm)).unwrap())
     {
         Result::Err(_) => return false,
         Result::Ok(r) => r,
@@ -425,7 +425,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let res_m = p.mul_scalar(3.to_bigint().unwrap()).unwrap();
+        let res_m = p.mul_scalar(&3.to_bigint().unwrap()).unwrap();
         let res_a = p.add(&p).unwrap();
         let res_a = res_a.add(&p).unwrap();
         assert_eq!(res_m.x, res_a.x);
@@ -443,7 +443,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let res2 = p.mul_scalar(n).unwrap();
+        let res2 = p.mul_scalar(&n).unwrap();
         assert_eq!(
             res2.x.to_string(),
             "17070357974431721403481313912716834497662307308519659060910483826664480189605"
@@ -568,7 +568,7 @@ mod tests {
             h[31] = h[31] | 0x40;
 
             let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
-            let point = B8.mul_scalar(sk.clone()).unwrap();
+            let point = B8.mul_scalar(&sk).unwrap();
             let cmp_point = point.compress();
             let dcmp_point = decompress_point(cmp_point).unwrap();
 
