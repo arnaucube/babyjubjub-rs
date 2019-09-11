@@ -83,7 +83,6 @@ impl Point {
     }
 
     pub fn mul_scalar(&self, n: &BigInt) -> Result<Point, String> {
-        // TODO use & in n to avoid clones on function call
         let mut r: Point = Point {
             x: Zero::zero(),
             y: One::one(),
@@ -115,6 +114,13 @@ impl Point {
             r[31] = r[31] | 0x80;
         }
         r
+    }
+
+    pub fn equals(&self, p: Point) -> bool {
+        if self.x == p.x && self.y == p.y {
+            return true;
+        }
+        false
     }
 }
 
@@ -252,6 +258,49 @@ impl PrivateKey {
             s: s,
         })
     }
+
+    pub fn sign_schnorr(&self, m: Vec<u8>) -> Result<(Point, BigInt), String> {
+        // random r
+        let mut rng = rand::thread_rng();
+        let k = rng.gen_biguint(1024).to_bigint().unwrap();
+
+        // r = k·G
+        let r = B8.mul_scalar(&k)?;
+
+        // h = H(x, r, m)
+        let pk = &self.public()?;
+        let h = schnorr_hash(&pk, m, &r)?;
+
+        // s= k+x·h
+        let s = k + &self.key * &h;
+        Ok((r, s))
+    }
+}
+
+pub fn schnorr_hash(pk: &Point, m: Vec<u8>, c: &Point) -> Result<BigInt, String> {
+    let b: &mut Vec<u8> = &mut Vec::new();
+
+    // other option could be to do it without compressing the points, and concatenating x|y
+    b.append(&mut pk.compress().to_vec());
+    b.append(&mut c.compress().to_vec());
+    b.append(&mut m.clone());
+
+    let poseidon = Poseidon::new();
+    let h = poseidon.hash_bytes(b.to_vec())?;
+    println!("h {:?}", h.to_string());
+    Ok(h)
+}
+
+pub fn verify_schnorr(pk: Point, m: Vec<u8>, r: Point, s: BigInt) -> Result<bool, String> {
+    // sG = s·G
+    let sg = B8.mul_scalar(&s)?;
+
+    // r + h · x
+    let h = schnorr_hash(&pk, m, &r)?;
+    let pk_h = pk.mul_scalar(&h)?;
+    let right = r.add(&pk_h)?;
+
+    Ok(sg.equals(right))
 }
 
 pub fn new_key() -> PrivateKey {
@@ -297,10 +346,7 @@ pub fn verify_mimc(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(r) => r,
     };
-    if l.x == r.x && l.y == r.y {
-        return true;
-    }
-    false
+    l.equals(r)
 }
 pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
     let hm_input = vec![
@@ -326,10 +372,7 @@ pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(r) => r,
     };
-    if l.x == r.x && l.y == r.y {
-        return true;
-    }
-    false
+    l.equals(r)
 }
 
 #[cfg(test)]
@@ -596,5 +639,19 @@ mod tests {
             let v = verify_mimc(pk.clone(), decompressed_sig, msg);
             assert_eq!(v, true);
         }
+    }
+
+    #[test]
+    fn test_schnorr_signature() {
+        let sk = new_key();
+        let pk = sk.public().unwrap();
+
+        let msg: Vec<u8> = ("123456".to_owned() + &1.to_string()).as_bytes().to_vec();
+        let (s, e) = sk.sign_schnorr(msg.clone()).unwrap();
+        println!("s {:?}", s.x.to_string());
+        println!("s {:?}", s.y.to_string());
+        println!("e {:?}", e.to_string());
+        let verification = verify_schnorr(pk, msg, s, e).unwrap();
+        assert_eq!(true, verification);
     }
 }
