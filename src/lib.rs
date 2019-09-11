@@ -122,6 +122,12 @@ impl Point {
         }
         false
     }
+    pub fn zero() -> Point {
+        return Point {
+            x: Zero::zero(),
+            y: Zero::zero(),
+        };
+    }
 }
 
 pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
@@ -269,15 +275,99 @@ impl PrivateKey {
 
         // h = H(x, r, m)
         let pk = &self.public()?;
-        let h = schnorr_hash(&pk, m, &r)?;
+        let h = hash_sig(&pk, m, &r)?;
 
         // s= k+x·h
         let s = k + &self.key * &h;
         Ok((r, s))
     }
+
+    // https://eprint.iacr.org/2018/068.pdf
+    pub fn sign_aggr(
+        &self,
+        x: Point,
+        r: Point,
+        ri: BigInt,
+        l: Vec<u8>,
+        m: Vec<u8>,
+    ) -> Result<BigInt, String> {
+        let pk = &self.public()?;
+        // a0 = h(l, X0)
+        let ai = hash_agg(&l, pk)?;
+
+        // c = H(x, r, m)
+        let c = hash_sig(&x, m, &r)?;
+        // s0 = r0 + c · a0 · sk0 mod p
+        let si = ri + c * ai * &self.key;
+        Ok(utils::modulus(&si, &Q))
+    }
+}
+pub fn calc_ri() -> Result<(BigInt, Point), String> {
+    // random r
+    let mut rng = rand::thread_rng();
+    let k = rng.gen_biguint(1024).to_bigint().unwrap();
+
+    // r = k·G
+    let r = B8.mul_scalar(&k)?;
+    Ok((k, r))
+}
+pub fn aggr_pks(mut pks: Vec<Point>, ris: Vec<Point>) -> Result<(Point, Point, Vec<u8>), String> {
+    let mut pk_aggr: Vec<u8> = Vec::new();
+    for i in 0..pks.len() {
+        pk_aggr.append(&mut pks[i].compress().to_vec());
+    }
+
+    // (Xi=pk)
+    // l = {X1, X2, X3, ...}
+    let l = pk_aggr.clone();
+
+    // X = sum{ h(l, Xi)·Xi } = sum{ Xi · ai }
+    // a0 = h(l, X0)
+    let ai = hash_agg(&l, &pks[0])?;
+    let mut x: Point = pks[0].mul_scalar(&ai)?;
+    for i in 1..pks.len() {
+        // ai = h(l, Xi)
+        let ai = hash_agg(&l, &pks[i])?;
+        // x = x + ai · xi;
+        let s = pks[i].mul_scalar(&ai)?;
+        x = x.add(&s)?;
+    }
+
+    // r = sum{ ri }
+    let mut r: Point = ris[0].clone();
+    for i in 1..ris.len() {
+        r = r.add(&ris[i])?;
+    }
+
+    Ok((x, r, l))
+}
+pub fn aggr_signatures(sigs: Vec<BigInt>) -> Result<BigInt, String> {
+    let mut s: BigInt = Zero::zero();
+    for i in 0..sigs.len() {
+        // s = utils::modulus(&(s + &sigs[i]), &Q);
+        s = s + &sigs[i];
+    }
+    Ok(utils::modulus(&s, &Q))
+    // Ok(s)
+}
+pub fn verify_schnorr_aggregated(
+    x: Point,
+    r: Point,
+    s: BigInt,
+    m: Vec<u8>,
+) -> Result<bool, String> {
+    // sG = s·G
+    let sg = B8.mul_scalar(&s)?;
+
+    let c = hash_sig(&x, m, &r)?;
+    let x_c = x.mul_scalar(&c)?;
+    let right = r.add(&x_c)?;
+    println!("x:\n{:?}\n{:?}\n", sg.x.to_string(), right.x.to_string());
+    println!("y:\n{:?}\n{:?}\n", sg.y.to_string(), right.y.to_string());
+    Ok(sg.equals(right))
 }
 
-pub fn schnorr_hash(pk: &Point, m: Vec<u8>, c: &Point) -> Result<BigInt, String> {
+pub fn hash_sig(pk: &Point, m: Vec<u8>, c: &Point) -> Result<BigInt, String> {
     let b: &mut Vec<u8> = &mut Vec::new();
 
     // other option could be to do it without compressing the points, and concatenating x|y
@@ -287,7 +377,17 @@ pub fn schnorr_hash(pk: &Point, m: Vec<u8>, c: &Point) -> Result<BigInt, String>
 
     let poseidon = Poseidon::new();
     let h = poseidon.hash_bytes(b.to_vec())?;
-    println!("h {:?}", h.to_string());
+    Ok(h)
+}
+pub fn hash_agg(l: &Vec<u8>, xi: &Point) -> Result<BigInt, String> {
+    let b: &mut Vec<u8> = &mut Vec::new();
+
+    // other option could be to do it without compressing the points, and concatenating x|y
+    b.append(&mut l.clone());
+    b.append(&mut xi.compress().to_vec());
+
+    let poseidon = Poseidon::new();
+    let h = poseidon.hash_bytes(b.to_vec())?;
     Ok(h)
 }
 
@@ -296,11 +396,11 @@ pub fn verify_schnorr(pk: Point, m: Vec<u8>, r: Point, s: BigInt) -> Result<bool
     let sg = B8.mul_scalar(&s)?;
 
     // r + h · x
-    let h = schnorr_hash(&pk, m, &r)?;
+    let h = hash_sig(&pk, m, &r)?;
     let pk_h = pk.mul_scalar(&h)?;
-    let right = r.add(&pk_h)?;
+    let r_h_x = r.add(&pk_h)?;
 
-    Ok(sg.equals(right))
+    Ok(sg.equals(r_h_x))
 }
 
 pub fn new_key() -> PrivateKey {
@@ -381,6 +481,7 @@ mod tests {
     extern crate rustc_hex;
     use rustc_hex::{FromHex, ToHex};
 
+    /*
     #[test]
     fn test_add_same_point() {
         let p: Point = Point {
@@ -652,6 +753,46 @@ mod tests {
         println!("s {:?}", s.y.to_string());
         println!("e {:?}", e.to_string());
         let verification = verify_schnorr(pk, msg, s, e).unwrap();
+        assert_eq!(true, verification);
+    }
+    */
+    #[test]
+    fn test_aggregated_schnorr_signature() {
+        let m: Vec<u8> = ("123456".to_owned() + &1.to_string()).as_bytes().to_vec();
+
+        let sk0 = new_key();
+        let pk0 = sk0.public().unwrap();
+        let sk1 = new_key();
+        let pk1 = sk1.public().unwrap();
+        let mut pks: Vec<Point> = Vec::new();
+        pks.push(pk0.clone());
+        pks.push(pk1.clone());
+
+        let (k0, r0) = calc_ri().unwrap();
+        let (k1, r1) = calc_ri().unwrap();
+        let mut ris: Vec<Point> = Vec::new();
+        ris.push(r0);
+        ris.push(r1);
+
+        // aggregate public keys
+        let (x, r, l) = aggr_pks(pks, ris).unwrap();
+
+        // perform the signs
+        let sig0 = sk0
+            .sign_aggr(x.clone(), r.clone(), k0, l.clone(), m.clone())
+            .unwrap();
+        let sig1 = sk1
+            .sign_aggr(x.clone(), r.clone(), k1, l.clone(), m.clone())
+            .unwrap();
+
+        // aggregate the signatures
+        let mut sigs: Vec<BigInt> = Vec::new();
+        sigs.push(sig0);
+        sigs.push(sig1);
+        let aggr_sig = aggr_signatures(sigs).unwrap();
+
+        // verify the pk with the aggregated signatures
+        let verification = verify_schnorr_aggregated(x, r, aggr_sig, m).unwrap();
         assert_eq!(true, verification);
     }
 }
