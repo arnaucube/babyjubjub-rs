@@ -9,10 +9,11 @@ repository = "https://github.com/arnaucube/babyjubjub-rs"
 readme = "README.md"
 
 [dependencies]
+ff = {package="ff_ce" , version="0.11", features = ["derive"]}
+rand = "0.4"
 num = "0.2.0"
 num-bigint = {version = "0.2.2", features = ["rand"]}
 num-traits = "0.2.8"
-rand = "0.6.5"
 blake2 = "0.8"
 generic-array = "0.13.2"
 tiny-keccak = "1.5"
