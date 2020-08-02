@@ -11,6 +11,7 @@ readme = "README.md"
 [dependencies]
 ff = {package="ff_ce" , version="0.11", features = ["derive"]}
 rand = "0.4"
+rand6 = {package="rand", version="0.6.5"}
 num = "0.2.0"
 num-bigint = {version = "0.2.2", features = ["rand"]}
 num-traits = "0.2.8"
@@ -19,7 +20,7 @@ generic-array = "0.13.2"
 tiny-keccak = "1.5"
 rustc-hex = "1.0.0"
 mimc-rs = "0.0.2"
-poseidon-rs = "0.0.1"
+poseidon-rs = "0.0.3"
 arrayref = "0.3.5"
 lazy_static = "1.4.0"
 
