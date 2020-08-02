@@ -46,12 +46,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     let sk = babyjubjub_rs::new_key();
     let pk = sk.public().unwrap();
     let msg = 5.to_bigint().unwrap();
-    c.bench_function("sign_poseidon", |b| {
-        b.iter(|| sk.sign_poseidon(msg.clone()))
-    });
-    let sig = sk.sign_poseidon(msg.clone()).unwrap();
-    c.bench_function("verify_poseidon", |b| {
-        b.iter(|| babyjubjub_rs::verify_poseidon(pk.clone(), sig.clone(), msg.clone()))
+    c.bench_function("sign", |b| b.iter(|| sk.sign(msg.clone())));
+    let sig = sk.sign(msg.clone()).unwrap();
+    c.bench_function("verify", |b| {
+        b.iter(|| babyjubjub_rs::verify(pk.clone(), sig.clone(), msg.clone()))
     });
 }
 

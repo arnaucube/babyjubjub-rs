@@ -1,3 +1,5 @@
+// WARNING still updating the code, it works, but is still in process the refactor.
+
 extern crate rand;
 #[macro_use]
 extern crate ff;
@@ -283,37 +285,10 @@ impl PrivateKey {
         Ok(pk.clone())
     }
 
-    //     pub fn sign_mimc(&self, msg: BigInt) -> Result<Signature, String> {
-    //         // https://tools.ietf.org/html/rfc8032#section-5.1.6
-    //         let mut hasher = Blake2b::new();
-    //         let (_, sk_bytes) = self.key.to_bytes_be();
-    //         hasher.input(sk_bytes);
-    //         let mut h = hasher.result(); // h: hash(sk)
-    //                                      // s: h[32:64]
-    //         let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
-    //         let (_, msg_bytes) = msg.to_bytes_be();
-    //         let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
-    //         let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
-    //         r = utils::modulus(&r, &SUBORDER);
-    //         let r8: Point = B8.mul_scalar(&r)?;
-    //         let a = &self.public()?;
-    //
-    //         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg];
-    //         let mimc7 = Mimc7::new();
-    //         let hm = mimc7.hash(hm_input)?;
-    //
-    //         let mut s = &self.key << 3;
-    //         s = hm * s;
-    //         s = r + s;
-    //         s = s % &SUBORDER.clone();
-    //
-    //         Ok(Signature {
-    //             r_b8: r8.clone(),
-    //             s: s,
-    //         })
-    //     }
-
-    pub fn sign_poseidon(&self, msg: BigInt) -> Result<Signature, String> {
+    pub fn sign(&self, msg: BigInt) -> Result<Signature, String> {
+        if msg > Q.clone() {
+            return Err("msg outside the Finite Field".to_string());
+        }
         // https://tools.ietf.org/html/rfc8032#section-5.1.6
         let mut hasher = Blake2b::new();
         let (_, sk_bytes) = self.key.to_bytes_be();
@@ -346,49 +321,48 @@ impl PrivateKey {
         })
     }
 
-    //     pub fn sign_schnorr(&self, m: Vec<u8>) -> Result<(Point, BigInt), String> {
-    //         // random r
-    //         let mut rng = rand::thread_rng();
-    //         let k = rng.gen_biguint(1024).to_bigint().unwrap();
-    //
-    //         // r = k·G
-    //         let r = B8.mul_scalar(&k)?;
-    //
-    //         // h = H(x, r, m)
-    //         let pk = &self.public()?;
-    //         let h = schnorr_hash(&pk, m, &r)?;
-    //
-    //         // s= k+x·h
-    //         let s = k + &self.key * &h;
-    //         Ok((r, s))
-    //     }
+    pub fn sign_schnorr(&self, m: BigInt) -> Result<(Point, BigInt), String> {
+        // random r
+        let mut rng = rand6::thread_rng();
+        let k = rng.gen_biguint(1024).to_bigint().unwrap();
+
+        // r = k·G
+        let r = B8.mul_scalar(&k)?;
+
+        // h = H(x, r, m)
+        let pk = &self.public()?;
+        let h = schnorr_hash(&pk, m, &r)?;
+
+        // s= k+x·h
+        let s = k + &self.key * &h;
+        Ok((r, s))
+    }
 }
 
-// pub fn schnorr_hash(pk: &Point, m: Vec<u8>, c: &Point) -> Result<BigInt, String> {
-//     let b: &mut Vec<u8> = &mut Vec::new();
-//
-//     // other option could be to do it without compressing the points, and concatenating x|y
-//     b.append(&mut pk.compress().to_vec());
-//     b.append(&mut c.compress().to_vec());
-//     b.append(&mut m.clone());
-//
-//     let poseidon = Poseidon::new();
-//     let h = poseidon.hash_bytes(b.to_vec())?;
-//     println!("h {:?}", h.to_string());
-//     Ok(h)
-// }
-//
-// pub fn verify_schnorr(pk: Point, m: Vec<u8>, r: Point, s: BigInt) -> Result<bool, String> {
-//     // sG = s·G
-//     let sg = B8.mul_scalar(&s)?;
-//
-//     // r + h · x
-//     let h = schnorr_hash(&pk, m, &r)?;
-//     let pk_h = pk.mul_scalar(&h)?;
-//     let right = r.add(&pk_h)?;
-//
-//     Ok(sg.equals(right))
-// }
+pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String> {
+    if msg > Q.clone() {
+        return Err("msg outside the Finite Field".to_string());
+    }
+    let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
+    let hm_input = vec![pk.x.clone(), pk.y.clone(), c.x.clone(), c.y.clone(), msgFr];
+    let poseidon = Poseidon::new();
+    let h = poseidon.hash(hm_input)?;
+    println!("h {:?}", h.to_string());
+    let hB = BigInt::parse_bytes(to_hex(&h).as_bytes(), 16).unwrap();
+    Ok(hB)
+}
+
+pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool, String> {
+    // sG = s·G
+    let sg = B8.mul_scalar(&s)?;
+
+    // r + h · x
+    let h = schnorr_hash(&pk, m, &r)?;
+    let pk_h = pk.mul_scalar(&h)?;
+    let right = r.projective().add(&pk_h.projective())?;
+
+    Ok(sg.equals(right.affine()))
+}
 
 pub fn new_key() -> PrivateKey {
     // https://tools.ietf.org/html/rfc8032#section-5.1.5
@@ -409,34 +383,10 @@ pub fn new_key() -> PrivateKey {
     PrivateKey { key: sk }
 }
 
-// pub fn verify_mimc(pk: Point, sig: Signature, msg: BigInt) -> bool {
-//     let hm_input = vec![
-//         sig.r_b8.x.clone(),
-//         sig.r_b8.y.clone(),
-//         pk.x.clone(),
-//         pk.y.clone(),
-//         msg,
-//     ];
-//     let mimc7 = Mimc7::new();
-//     let hm = match mimc7.hash(hm_input) {
-//         Result::Err(_) => return false,
-//         Result::Ok(hm) => hm,
-//     };
-//     let l = match B8.mul_scalar(&sig.s) {
-//         Result::Err(_) => return false,
-//         Result::Ok(l) => l,
-//     };
-//     let r = match sig
-//         .r_b8
-//         .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm)).unwrap())
-//     {
-//         Result::Err(_) => return false,
-//         Result::Ok(r) => r,
-//     };
-//     l.equals(r)
-// }
-
-pub fn verify_poseidon(pk: Point, sig: Signature, msg: BigInt) -> bool {
+pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
+    if msg > Q.clone() {
+        return false;
+    }
     let (_, msg_bytes) = msg.to_bytes_be();
     let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
     let hm_input = vec![
@@ -628,22 +578,22 @@ mod tests {
     // }
 
     #[test]
-    fn test_new_key_sign_verify_poseidon_0() {
+    fn test_new_key_sign_verify_0() {
         let sk = new_key();
         let pk = sk.public().unwrap();
         let msg = 5.to_bigint().unwrap();
-        let sig = sk.sign_poseidon(msg.clone()).unwrap();
-        let v = verify_poseidon(pk, sig, msg);
+        let sig = sk.sign(msg.clone()).unwrap();
+        let v = verify(pk, sig, msg);
         assert_eq!(v, true);
     }
 
     #[test]
-    fn test_new_key_sign_verify_poseidon_1() {
+    fn test_new_key_sign_verify_1() {
         let sk = new_key();
         let pk = sk.public().unwrap();
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
-        let sig = sk.sign_poseidon(msg.clone()).unwrap();
-        let v = verify_poseidon(pk, sig, msg);
+        let sig = sk.sign(msg.clone()).unwrap();
+        let v = verify(pk, sig, msg);
         assert_eq!(v, true);
     }
 
@@ -739,7 +689,7 @@ mod tests {
         for i in 0..5 {
             let msg_raw = "123456".to_owned() + &i.to_string();
             let msg = BigInt::parse_bytes(msg_raw.as_bytes(), 10).unwrap();
-            let sig = sk.sign_poseidon(msg.clone()).unwrap();
+            let sig = sk.sign(msg.clone()).unwrap();
 
             let compressed_sig = sig.compress();
             let decompressed_sig = decompress_signature(&compressed_sig).unwrap();
@@ -747,22 +697,22 @@ mod tests {
             assert_eq!(&sig.r_b8.y, &decompressed_sig.r_b8.y);
             assert_eq!(&sig.s, &decompressed_sig.s);
 
-            let v = verify_poseidon(pk.clone(), decompressed_sig, msg);
+            let v = verify(pk.clone(), decompressed_sig, msg);
             assert_eq!(v, true);
         }
     }
 
-    // #[test]
-    // fn test_schnorr_signature() {
-    //     let sk = new_key();
-    //     let pk = sk.public().unwrap();
-    //
-    //     let msg: Vec<u8> = ("123456".to_owned() + &1.to_string()).as_bytes().to_vec();
-    //     let (s, e) = sk.sign_schnorr(msg.clone()).unwrap();
-    //     println!("s {:?}", s.x.to_string());
-    //     println!("s {:?}", s.y.to_string());
-    //     println!("e {:?}", e.to_string());
-    //     let verification = verify_schnorr(pk, msg, s, e).unwrap();
-    //     assert_eq!(true, verification);
-    // }
+    #[test]
+    fn test_schnorr_signature() {
+        let sk = new_key();
+        let pk = sk.public().unwrap();
+
+        let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
+        let (s, e) = sk.sign_schnorr(msg.clone()).unwrap();
+        println!("s {:?}", s.x.to_string());
+        println!("s {:?}", s.y.to_string());
+        println!("e {:?}", e.to_string());
+        let verification = verify_schnorr(pk, msg, s, e).unwrap();
+        assert_eq!(true, verification);
+    }
 }
