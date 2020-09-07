@@ -73,6 +73,7 @@ lazy_static! {
                             )
             .unwrap()
                     >> 3;
+    static ref poseidon: poseidon_rs::Poseidon = Poseidon::new();
 }
 
 #[derive(Clone, Debug)]
@@ -306,7 +307,6 @@ impl PrivateKey {
         let a = &self.public()?;
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msgFr];
-        let poseidon = Poseidon::new();
         let hm = poseidon.hash(hm_input)?;
 
         let mut s = &self.key << 3;
@@ -345,7 +345,6 @@ pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String
     }
     let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
     let hm_input = vec![pk.x.clone(), pk.y.clone(), c.x.clone(), c.y.clone(), msgFr];
-    let poseidon = Poseidon::new();
     let h = poseidon.hash(hm_input)?;
     println!("h {:?}", h.to_string());
     let hB = BigInt::parse_bytes(to_hex(&h).as_bytes(), 16).unwrap();
@@ -387,7 +386,6 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
     if msg > Q.clone() {
         return false;
     }
-    let (_, msg_bytes) = msg.to_bytes_be();
     let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
     let hm_input = vec![
         sig.r_b8.x.clone(),
@@ -396,7 +394,6 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         pk.y.clone(),
         msgFr,
     ];
-    let poseidon = Poseidon::new();
     let hm = match poseidon.hash(hm_input) {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,

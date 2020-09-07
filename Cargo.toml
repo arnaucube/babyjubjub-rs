@@ -20,7 +20,7 @@ generic-array = "0.13.2"
 tiny-keccak = "1.5"
 rustc-hex = "1.0.0"
 mimc-rs = "0.0.2"
-poseidon-rs = "0.0.3"
+poseidon-rs = "0.0.4"
 arrayref = "0.3.5"
 lazy_static = "1.4.0"
 
