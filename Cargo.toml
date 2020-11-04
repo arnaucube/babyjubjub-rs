@@ -1,6 +1,6 @@
 [package]
 name = "babyjubjub-rs"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2018"
 license = "GPL-3.0"
@@ -19,8 +19,7 @@ blake2 = "0.8"
 generic-array = "0.13.2"
 tiny-keccak = "1.5"
 rustc-hex = "1.0.0"
-mimc-rs = "0.0.2"
-poseidon-rs = "0.0.4"
+poseidon-rs = "0.0.5"
 arrayref = "0.3.5"
 lazy_static = "1.4.0"
 

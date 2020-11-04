@@ -11,7 +11,6 @@ pub type Fr = poseidon_rs::Fr; // alias
 #[macro_use]
 extern crate arrayref;
 extern crate generic_array;
-extern crate mimc_rs;
 extern crate num;
 extern crate num_bigint;
 extern crate num_traits;
@@ -20,7 +19,6 @@ extern crate rand6;
 use rand6::Rng;
 
 use blake2::{Blake2b, Digest};
-use mimc_rs::Mimc7;
 use std::cmp::min;
 
 use num_bigint::{BigInt, RandBigInt, RandomBits, Sign, ToBigInt};
@@ -553,26 +551,6 @@ mod tests {
             .unwrap()
         );
     }
-
-    // #[test]
-    // fn test_new_key_sign_verify_mimc_0() {
-    //     let sk = new_key();
-    //     let pk = sk.public().unwrap();
-    //     let msg = 5.to_bigint().unwrap();
-    //     let sig = sk.sign_mimc(msg.clone()).unwrap();
-    //     let v = verify_mimc(pk, sig, msg);
-    //     assert_eq!(v, true);
-    // }
-    //
-    // #[test]
-    // fn test_new_key_sign_verify_mimc_1() {
-    //     let sk = new_key();
-    //     let pk = sk.public().unwrap();
-    //     let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
-    //     let sig = sk.sign_mimc(msg.clone()).unwrap();
-    //     let v = verify_mimc(pk, sig, msg);
-    //     assert_eq!(v, true);
-    // }
 
     #[test]
     fn test_new_key_sign_verify_0() {
