@@ -15,7 +15,7 @@ rand6 = {package="rand", version="0.6.5"}
 num = "0.2.0"
 num-bigint = {version = "0.2.2", features = ["rand"]}
 num-traits = "0.2.8"
-blake2 = "0.8"
+blake-hash = "0.4.0"
 generic-array = "0.13.2"
 tiny-keccak = "1.5"
 rustc-hex = "1.0.0"

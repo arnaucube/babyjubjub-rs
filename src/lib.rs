@@ -1,5 +1,3 @@
-// WARNING still updating the code, it works, but is still in process the refactor.
-
 extern crate rand;
 #[macro_use]
 extern crate ff;
@@ -18,11 +16,15 @@ extern crate num_traits;
 extern crate rand6;
 use rand6::Rng;
 
-use blake2::{Blake2b, Digest};
+// use blake2::{Blake2b, Digest};
+extern crate blake_hash; // compatible version with Blake used at circomlib
+#[macro_use]
+use blake_hash::Digest;
+
 use std::cmp::min;
 
-use num_bigint::{BigInt, RandBigInt, RandomBits, Sign, ToBigInt};
-use num_traits::{One, Zero};
+use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
+use num_traits::One;
 
 use generic_array::GenericArray;
 
@@ -39,38 +41,29 @@ lazy_static! {
     pub static ref Q: BigInt = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
-    .unwrap();
-    // pub static ref Q: Fr = Fr::from_str(
-    //     "21888242871839275222246405745257275088548364400416034343698204186575808495617"
-    // )
-    // .unwrap();
+        .unwrap();
     static ref B8: Point = Point {
         x: Fr::from_str(
-            "5299619240641551281634865583518297030282874472190772894086521144482721001553",
-        )
-        .unwrap(),
-        y: Fr::from_str(
-            "16950150798460657717958625567821834550301663161624707787222815936182638968203",
-        )
-        .unwrap(),
-            // z: Fr::one(),
+               "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+           )
+            .unwrap(),
+            y: Fr::from_str(
+                "16950150798460657717958625567821834550301663161624707787222815936182638968203",
+            )
+                .unwrap(),
     };
     static ref ORDER: Fr = Fr::from_str(
         "21888242871839275222246405745257275088614511777268538073601725287587578984328",
     )
-    .unwrap();
+        .unwrap();
 
     // SUBORDER = ORDER >> 3
-    // static ref SUBORDER: Fr = Fr::from_str(
-    //     "i2736030358979909402780800718157159386076813972158567259200215660948447373041",
-    // )
-    // .unwrap();
     static ref SUBORDER: BigInt = &BigInt::parse_bytes(
-                b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
-                        10,
-                            )
-            .unwrap()
-                    >> 3;
+        b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
+        10,
+    )
+        .unwrap()
+        >> 3;
     static ref poseidon: poseidon_rs::Poseidon = Poseidon::new();
 }
 
@@ -274,13 +267,40 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
 }
 
 pub struct PrivateKey {
-    key: BigInt,
+    key: [u8; 32],
 }
 
 impl PrivateKey {
+    pub fn import(b: Vec<u8>) -> Result<PrivateKey, String> {
+        if b.len() != 32 {
+            return Err(String::from("imported key can not be bigger than 32 bytes"));
+        }
+        let mut sk: [u8; 32] = [0; 32];
+        sk.copy_from_slice(&b[..32]);
+        Ok(PrivateKey { key: sk })
+    }
+
+    pub fn scalar_key(&self) -> BigInt {
+        // not-compatible with circomlib implementation, but using Blake2b
+        // let mut hasher = Blake2b::new();
+        // hasher.update(sk_raw_bytes);
+        // let mut h = hasher.finalize();
+
+        // compatible with circomlib implementation
+        let mut hash = blake_hash::Blake512::digest(&self.key.to_vec());
+        let mut h: Vec<u8> = hash[..32].to_vec();
+
+        h[0] = h[0] & 0xF8;
+        h[31] = h[31] & 0x7F;
+        h[31] = h[31] | 0x40;
+
+        let mut sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
+        sk >> 3
+    }
+
     pub fn public(&self) -> Result<Point, String> {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        let pk = B8.mul_scalar(&self.key)?;
+        let pk = B8.mul_scalar(&self.scalar_key())?;
         Ok(pk.clone())
     }
 
@@ -288,18 +308,22 @@ impl PrivateKey {
         if msg > Q.clone() {
             return Err("msg outside the Finite Field".to_string());
         }
-        // https://tools.ietf.org/html/rfc8032#section-5.1.6
-        let mut hasher = Blake2b::new();
-        let (_, sk_bytes) = self.key.to_bytes_be();
-        hasher.input(sk_bytes);
-        let mut h = hasher.result(); // h: hash(sk)
-                                     // s: h[32:64]
-        let (_, msg_bytes) = msg.to_bytes_be();
+        // let (_, sk_bytes) = self.key.to_bytes_le();
+        // let mut hasher = Blake2b::new();
+        // hasher.update(sk_bytes);
+        // let mut h = hasher.finalize(); // h: hash(sk), s: h[32:64]
+        let mut h = blake_hash::Blake512::digest(&self.key);
+
+        let (_, msg_bytes) = msg.to_bytes_le();
+        let mut msg32: [u8; 32] = [0; 32];
+        msg32[..msg_bytes.len()].copy_from_slice(&msg_bytes[..]);
         let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
 
+        // https://tools.ietf.org/html/rfc8032#section-5.1.6
         let s = GenericArray::<u8, generic_array::typenum::U32>::from_mut_slice(&mut h[32..64]);
-        let r_bytes = utils::concatenate_arrays(s, &msg_bytes);
-        let mut r = BigInt::from_bytes_be(Sign::Plus, &r_bytes[..]);
+        let r_bytes = utils::concatenate_arrays(s, &msg32);
+        let mut r_hashed = blake_hash::Blake512::digest(&r_bytes);
+        let mut r = BigInt::from_bytes_le(Sign::Plus, &r_hashed[..]);
         r = utils::modulus(&r, &SUBORDER);
         let r8: Point = B8.mul_scalar(&r)?;
         let a = &self.public()?;
@@ -307,7 +331,7 @@ impl PrivateKey {
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msgFr];
         let hm = poseidon.hash(hm_input)?;
 
-        let mut s = &self.key << 3;
+        let mut s = &self.scalar_key() << 3;
         let hmB = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
         s = hmB * s;
         s = r + s;
@@ -332,7 +356,8 @@ impl PrivateKey {
         let h = schnorr_hash(&pk, m, &r)?;
 
         // s= k+x·h
-        let s = k + &self.key * &h;
+        let sk_scalar = self.scalar_key();
+        let s = k + &sk_scalar * &h;
         Ok((r, s))
     }
 }
@@ -344,7 +369,6 @@ pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String
     let msgFr: Fr = Fr::from_str(&msg.to_string()).unwrap();
     let hm_input = vec![pk.x.clone(), pk.y.clone(), c.x.clone(), c.y.clone(), msgFr];
     let h = poseidon.hash(hm_input)?;
-    println!("h {:?}", h.to_string());
     let hB = BigInt::parse_bytes(to_hex(&h).as_bytes(), 16).unwrap();
     Ok(hB)
 }
@@ -365,19 +389,8 @@ pub fn new_key() -> PrivateKey {
     // https://tools.ietf.org/html/rfc8032#section-5.1.5
     let mut rng = rand6::thread_rng();
     let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
-
-    let mut hasher = Blake2b::new();
     let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
-    hasher.input(sk_raw_bytes);
-    let mut h = hasher.result();
-
-    h[0] = h[0] & 0xF8;
-    h[31] = h[31] & 0x7F;
-    h[31] = h[31] | 0x40;
-
-    let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
-
-    PrivateKey { key: sk }
+    PrivateKey::import(sk_raw_bytes[..32].to_vec()).unwrap()
 }
 
 pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
@@ -637,10 +650,8 @@ mod tests {
         for _ in 0..5 {
             let random_bytes = rand6::thread_rng().gen::<[u8; 32]>();
             let sk_raw: BigInt = BigInt::from_bytes_le(Sign::Plus, &random_bytes[..]);
-            let mut hasher = Blake2b::new();
             let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
-            hasher.input(sk_raw_bytes);
-            let mut h = hasher.result();
+            let mut h = blake_hash::Blake512::digest(&sk_raw_bytes);
 
             h[0] = h[0] & 0xF8;
             h[31] = h[31] & 0x7F;
@@ -684,10 +695,59 @@ mod tests {
 
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let (s, e) = sk.sign_schnorr(msg.clone()).unwrap();
-        println!("s {:?}", s.x.to_string());
-        println!("s {:?}", s.y.to_string());
-        println!("e {:?}", e.to_string());
         let verification = verify_schnorr(pk, msg, s, e).unwrap();
         assert_eq!(true, verification);
+    }
+
+    #[test]
+    fn test_circomlib_testvector() {
+        let sk_raw_bytes =
+            hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
+                .unwrap();
+
+        // test blake compatible with circomlib implementation
+        let mut h = blake_hash::Blake512::digest(&sk_raw_bytes);
+        assert_eq!(h.to_hex(), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
+
+        // test private key
+        let sk = PrivateKey::import(
+            hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            sk.scalar_key().to_string(),
+            "6466070937662820620902051049739362987537906109895538826186780010858059362905"
+        );
+
+        // test public key
+        let pk = sk.public().unwrap();
+        assert_eq!(
+            pk.x.to_string(),
+            "Fr(0x1d5ac1f31407018b7d413a4f52c8f74463b30e6ac2238220ad8b254de4eaa3a2)"
+        );
+        assert_eq!(
+            pk.y.to_string(),
+            "Fr(0x1e1de8a908826c3f9ac2e0ceee929ecd0caf3b99b3ef24523aaab796a6f733c4)"
+        );
+
+        // test signature & verification
+        let msg = BigInt::from_bytes_le(Sign::Plus, &hex::decode("00010203040506070809").unwrap());
+        println!("msg {:?}", msg.to_string());
+        let sig = sk.sign(msg.clone()).unwrap();
+        assert_eq!(
+            sig.r_b8.x.to_string(),
+            "Fr(0x192b4e51adf302c8139d356d0e08e2404b5ace440ef41fc78f5c4f2428df0765)"
+        );
+        assert_eq!(
+            sig.r_b8.y.to_string(),
+            "Fr(0x2202bebcf57b820863e0acc88970b6ca7d987a0d513c2ddeb42e3f5d31b4eddf)"
+        );
+        assert_eq!(
+            sig.s.to_string(),
+            "1398758333392199195742243841591064350253744445503462896781493968760929513778"
+        );
+        let v = verify(pk, sig, msg);
+        assert_eq!(v, true);
     }
 }
