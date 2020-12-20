@@ -94,7 +94,7 @@ impl PointProjective {
             y: y.clone(),
         }
     }
-    pub fn add(&self, q: &PointProjective) -> Result<PointProjective, String> {
+    pub fn add(&self, q: &PointProjective) -> PointProjective {
         // add-2008-bbjlp https://hyperelliptic.org/EFD/g1p/auto-twisted-projective.html#doubling-dbl-2008-bbjlp
         let mut a = self.z;
         a.mul_assign(&q.z);
@@ -132,11 +132,11 @@ impl PointProjective {
         let mut z3 = f;
         z3.mul_assign(&g);
 
-        Ok(PointProjective {
+        PointProjective {
             x: x3.clone(),
             y: y3.clone(),
             z: z3.clone(),
-        })
+        }
     }
 }
 
@@ -155,7 +155,7 @@ impl Point {
         }
     }
 
-    pub fn mul_scalar(&self, n: &BigInt) -> Result<Point, String> {
+    pub fn mul_scalar(&self, n: &BigInt) -> Point {
         let mut r: PointProjective = PointProjective {
             x: Fr::zero(),
             y: Fr::one(),
@@ -165,11 +165,11 @@ impl Point {
         let (_, b) = n.to_bytes_le();
         for i in 0..n.bits() {
             if test_bit(&b, i) {
-                r = r.add(&exp)?;
+                r = r.add(&exp);
             }
-            exp = exp.add(&exp)?;
+            exp = exp.add(&exp);
         }
-        Ok(r.affine())
+        r.affine()
     }
 
     pub fn compress(&self) -> [u8; 32] {
@@ -298,10 +298,10 @@ impl PrivateKey {
         sk >> 3
     }
 
-    pub fn public(&self) -> Result<Point, String> {
+    pub fn public(&self) -> Point {
         // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        let pk = B8.mul_scalar(&self.scalar_key())?;
-        Ok(pk.clone())
+        let pk = B8.mul_scalar(&self.scalar_key());
+        pk.clone()
     }
 
     pub fn sign(&self, msg: BigInt) -> Result<Signature, String> {
@@ -325,8 +325,8 @@ impl PrivateKey {
         let r_hashed = blake_hash::Blake512::digest(&r_bytes);
         let mut r = BigInt::from_bytes_le(Sign::Plus, &r_hashed[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(&r)?;
-        let a = &self.public()?;
+        let r8: Point = B8.mul_scalar(&r);
+        let a = &self.public();
 
         let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg_fr];
         let hm = poseidon.hash(hm_input)?;
@@ -349,10 +349,10 @@ impl PrivateKey {
         let k = rng.gen_biguint(1024).to_bigint().unwrap();
 
         // r = k·G
-        let r = B8.mul_scalar(&k)?;
+        let r = B8.mul_scalar(&k);
 
         // h = H(x, r, m)
-        let pk = &self.public()?;
+        let pk = &self.public();
         let h = schnorr_hash(&pk, m, &r)?;
 
         // s= k+x·h
@@ -375,12 +375,12 @@ pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String
 
 pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool, String> {
     // sG = s·G
-    let sg = B8.mul_scalar(&s)?;
+    let sg = B8.mul_scalar(&s);
 
     // r + h · x
     let h = schnorr_hash(&pk, m, &r)?;
-    let pk_h = pk.mul_scalar(&h)?;
-    let right = r.projective().add(&pk_h.projective())?;
+    let pk_h = pk.mul_scalar(&h);
+    let right = r.projective().add(&pk_h.projective());
 
     Ok(sg.equals(right.affine()))
 }
@@ -409,19 +409,12 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = match B8.mul_scalar(&sig.s) {
-        Result::Err(_) => return false,
-        Result::Ok(l) => l,
-    };
+    let l = B8.mul_scalar(&sig.s);
     let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
-    let r = match sig.r_b8.projective().add(
-        &pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b))
-            .unwrap()
-            .projective(),
-    ) {
-        Result::Err(_) => return false,
-        Result::Ok(r) => r,
-    };
+    let r = sig
+        .r_b8
+        .projective()
+        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)).projective());
     l.equals(r.affine())
 }
 
@@ -455,7 +448,7 @@ mod tests {
             .unwrap(),
             z: Fr::one(),
         };
-        let res = p.add(&q).unwrap().affine();
+        let res = p.add(&q).affine();
         assert_eq!(
             res.x,
             Fr::from_str(
@@ -495,7 +488,7 @@ mod tests {
             .unwrap(),
             z: Fr::one(),
         };
-        let res = p.add(&q).unwrap().affine();
+        let res = p.add(&q).affine();
         assert_eq!(
             res.x,
             Fr::from_str(
@@ -524,9 +517,9 @@ mod tests {
             )
             .unwrap(),
         };
-        let res_m = p.mul_scalar(&3.to_bigint().unwrap()).unwrap();
-        let res_a = p.projective().add(&p.projective()).unwrap();
-        let res_a = res_a.add(&p.projective()).unwrap().affine();
+        let res_m = p.mul_scalar(&3.to_bigint().unwrap());
+        let res_a = p.projective().add(&p.projective());
+        let res_a = res_a.add(&p.projective()).affine();
         assert_eq!(res_m.x, res_a.x);
         assert_eq!(
             res_m.x,
@@ -548,7 +541,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let res2 = p.mul_scalar(&n).unwrap();
+        let res2 = p.mul_scalar(&n);
         assert_eq!(
             res2.x,
             Fr::from_str(
@@ -568,7 +561,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_0() {
         let sk = new_key();
-        let pk = sk.public().unwrap();
+        let pk = sk.public();
         let msg = 5.to_bigint().unwrap();
         let sig = sk.sign(msg.clone()).unwrap();
         let v = verify(pk, sig, msg);
@@ -578,7 +571,7 @@ mod tests {
     #[test]
     fn test_new_key_sign_verify_1() {
         let sk = new_key();
-        let pk = sk.public().unwrap();
+        let pk = sk.public();
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let sig = sk.sign(msg.clone()).unwrap();
         let v = verify(pk, sig, msg);
@@ -658,7 +651,7 @@ mod tests {
             h[31] = h[31] | 0x40;
 
             let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
-            let point = B8.mul_scalar(&sk).unwrap();
+            let point = B8.mul_scalar(&sk);
             let cmp_point = point.compress();
             let dcmp_point = decompress_point(cmp_point).unwrap();
 
@@ -670,7 +663,7 @@ mod tests {
     #[test]
     fn test_signature_compress_decompress() {
         let sk = new_key();
-        let pk = sk.public().unwrap();
+        let pk = sk.public();
 
         for i in 0..5 {
             let msg_raw = "123456".to_owned() + &i.to_string();
@@ -691,7 +684,7 @@ mod tests {
     #[test]
     fn test_schnorr_signature() {
         let sk = new_key();
-        let pk = sk.public().unwrap();
+        let pk = sk.public();
 
         let msg = BigInt::parse_bytes(b"123456789012345678901234567890", 10).unwrap();
         let (s, e) = sk.sign_schnorr(msg.clone()).unwrap();
@@ -721,7 +714,7 @@ mod tests {
         );
 
         // test public key
-        let pk = sk.public().unwrap();
+        let pk = sk.public();
         assert_eq!(
             pk.x.to_string(),
             "Fr(0x1d5ac1f31407018b7d413a4f52c8f74463b30e6ac2238220ad8b254de4eaa3a2)"
