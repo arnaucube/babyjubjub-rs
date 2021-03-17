@@ -1,8 +1,8 @@
+// BabyJubJub elliptic curve implementation in Rust.
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
-extern crate rand;
-#[macro_use]
 extern crate ff;
+extern crate rand;
 use ff::*;
 
 use poseidon_rs::Poseidon;
@@ -16,14 +16,12 @@ extern crate num_bigint;
 extern crate num_traits;
 
 extern crate rand6;
-use rand6::Rng;
 
 // use blake2::{Blake2b, Digest};
 
 #[cfg(feature = "default")]
 extern crate blake_hash; // compatible version with Blake used at circomlib
 #[cfg(feature = "default")]
-#[macro_use]
 use blake_hash::Digest;
 
 #[cfg(feature = "aarch64")]
@@ -43,9 +41,9 @@ extern crate lazy_static;
 
 lazy_static! {
     static ref D: Fr = Fr::from_str("168696").unwrap();
-    static ref D_big: BigInt = BigInt::parse_bytes(b"168696", 10).unwrap();
+    static ref D_BIG: BigInt = BigInt::parse_bytes(b"168696", 10).unwrap();
     static ref A: Fr = Fr::from_str("168700").unwrap();
-    static ref A_big: BigInt = BigInt::parse_bytes(b"168700", 10).unwrap();
+    static ref A_BIG: BigInt = BigInt::parse_bytes(b"168700", 10).unwrap();
     pub static ref Q: BigInt = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
@@ -72,7 +70,7 @@ lazy_static! {
     )
         .unwrap()
         >> 3;
-    static ref poseidon: poseidon_rs::Poseidon = Poseidon::new();
+    static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
 }
 
 #[derive(Clone, Debug)]
@@ -97,11 +95,10 @@ impl PointProjective {
         let mut y = self.y;
         y.mul_assign(&zinv);
 
-        Point {
-            x: x.clone(),
-            y: y.clone(),
-        }
+        Point { x, y }
     }
+
+    #[allow(clippy::many_single_char_names)]
     pub fn add(&self, q: &PointProjective) -> PointProjective {
         // add-2008-bbjlp https://hyperelliptic.org/EFD/g1p/auto-twisted-projective.html#doubling-dbl-2008-bbjlp
         let mut a = self.z;
@@ -112,7 +109,7 @@ impl PointProjective {
         c.mul_assign(&q.x);
         let mut d = self.y;
         d.mul_assign(&q.y);
-        let mut e = D.clone();
+        let mut e = *D;
         e.mul_assign(&c);
         e.mul_assign(&d);
         let mut f = b;
@@ -130,7 +127,7 @@ impl PointProjective {
         let mut x3 = a;
         x3.mul_assign(&f);
         x3.mul_assign(&aux);
-        let mut ac = A.clone();
+        let mut ac = *A;
         ac.mul_assign(&c);
         let mut dac = d;
         dac.sub_assign(&ac);
@@ -141,9 +138,9 @@ impl PointProjective {
         z3.mul_assign(&g);
 
         PointProjective {
-            x: x3.clone(),
-            y: y3.clone(),
-            z: z3.clone(),
+            x: x3,
+            y: y3,
+            z: z3,
         }
     }
 }
@@ -157,8 +154,8 @@ pub struct Point {
 impl Point {
     pub fn projective(&self) -> PointProjective {
         PointProjective {
-            x: self.x.clone(),
-            y: self.y.clone(),
+            x: self.x,
+            y: self.y,
             z: Fr::one(),
         }
     }
@@ -188,8 +185,8 @@ impl Point {
         let (_, y_bytes) = y_big.to_bytes_le();
         let len = min(y_bytes.len(), r.len());
         r[..len].copy_from_slice(&y_bytes[..len]);
-        if &x_big > &(&Q.clone() >> 1) {
-            r[31] = r[31] | 0x80;
+        if x_big > (&Q.clone() >> 1) {
+            r[31] |= 0x80;
         }
         r
     }
@@ -202,17 +199,17 @@ impl Point {
     }
 }
 
-pub fn test_bit(b: &Vec<u8>, i: usize) -> bool {
-    return b[i / 8] & (1 << (i % 8)) != 0;
+pub fn test_bit(b: &[u8], i: usize) -> bool {
+    b[i / 8] & (1 << (i % 8)) != 0
 }
 
 pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     // https://tools.ietf.org/html/rfc8032#section-5.2.3
     let mut sign: bool = false;
-    let mut b = bb.clone();
+    let mut b = bb;
     if b[31] & 0x80 != 0x00 {
         sign = true;
-        b[31] = b[31] & 0x7F;
+        b[31] &= 0x7F;
     }
     let y: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[..]);
     if y >= Q.clone() {
@@ -223,7 +220,7 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     // x^2 = (1 - y^2) / (a - d * y^2) (mod p)
     let den = utils::modinv(
         &utils::modulus(
-            &(&A_big.clone() - utils::modulus(&(&D_big.clone() * (&y * &y)), &Q)),
+            &(&A_BIG.clone() - utils::modulus(&(&D_BIG.clone() * (&y * &y)), &Q)),
             &Q,
         ),
         &Q,
@@ -231,8 +228,8 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     let mut x: BigInt = utils::modulus(&((one - utils::modulus(&(&y * &y), &Q)) * den), &Q);
     x = utils::modsqrt(&x, &Q)?;
 
-    if sign && !(&x > &(&Q.clone() >> 1)) || (!sign && (&x > &(&Q.clone() >> 1))) {
-        x = x * -1.to_bigint().unwrap();
+    if sign && (x <= (&Q.clone() >> 1)) || (!sign && (x > (&Q.clone() >> 1))) {
+        x *= -(1.to_bigint().unwrap());
     }
     x = utils::modulus(&x, &Q);
     let x_fr: Fr = Fr::from_str(&x.to_string()).unwrap();
@@ -241,7 +238,7 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
 }
 
 #[cfg(feature = "default")]
-fn blh(b: &Vec<u8>) -> Vec<u8> {
+fn blh(b: &[u8]) -> Vec<u8> {
     let hash = blake_hash::Blake512::digest(&b);
     hash.to_vec()
 }
@@ -279,11 +276,8 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
     let s: BigInt = BigInt::from_bytes_le(Sign::Plus, &b[32..]);
     let r_b8 = decompress_point(r_b8_bytes);
     match r_b8 {
-        Result::Err(err) => return Err(err.to_string()),
-        Result::Ok(res) => Ok(Signature {
-            r_b8: res.clone(),
-            s: s,
-        }),
+        Result::Err(err) => Err(err),
+        Result::Ok(res) => Ok(Signature { r_b8: res, s }),
     }
 }
 
@@ -308,21 +302,19 @@ impl PrivateKey {
         // let mut h = hasher.finalize();
 
         // compatible with circomlib implementation
-        let mut hash: Vec<u8> = blh(&self.key.to_vec());
+        let hash: Vec<u8> = blh(&self.key.to_vec());
         let mut h: Vec<u8> = hash[..32].to_vec();
 
-        h[0] = h[0] & 0xF8;
-        h[31] = h[31] & 0x7F;
-        h[31] = h[31] | 0x40;
+        h[0] &= 0xF8;
+        h[31] &= 0x7F;
+        h[31] |= 0x40;
 
         let sk = BigInt::from_bytes_le(Sign::Plus, &h[..]);
         sk >> 3
     }
 
     pub fn public(&self) -> Point {
-        // https://tools.ietf.org/html/rfc8032#section-5.1.5
-        let pk = B8.mul_scalar(&self.scalar_key());
-        pk.clone()
+        B8.mul_scalar(&self.scalar_key())
     }
 
     pub fn sign(&self, msg: BigInt) -> Result<Signature, String> {
@@ -346,24 +338,22 @@ impl PrivateKey {
         let r_hashed: Vec<u8> = blh(&r_bytes);
         let mut r = BigInt::from_bytes_le(Sign::Plus, &r_hashed[..]);
         r = utils::modulus(&r, &SUBORDER);
-        let r8: Point = B8.mul_scalar(&r);
+        let r_b8: Point = B8.mul_scalar(&r);
         let a = &self.public();
 
-        let hm_input = vec![r8.x.clone(), r8.y.clone(), a.x.clone(), a.y.clone(), msg_fr];
-        let hm = poseidon.hash(hm_input)?;
+        let hm_input = vec![r_b8.x, r_b8.y, a.x, a.y, msg_fr];
+        let hm = POSEIDON.hash(hm_input)?;
 
         let mut s = &self.scalar_key() << 3;
         let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
         s = hm_b * s;
         s = r + s;
-        s = s % &SUBORDER.clone();
+        s %= &SUBORDER.clone();
 
-        Ok(Signature {
-            r_b8: r8.clone(),
-            s: s,
-        })
+        Ok(Signature { r_b8, s })
     }
 
+    #[allow(clippy::many_single_char_names)]
     pub fn sign_schnorr(&self, m: BigInt) -> Result<(Point, BigInt), String> {
         // random r
         let mut rng = rand6::thread_rng();
@@ -388,8 +378,8 @@ pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String
         return Err("msg outside the Finite Field".to_string());
     }
     let msg_fr: Fr = Fr::from_str(&msg.to_string()).unwrap();
-    let hm_input = vec![pk.x.clone(), pk.y.clone(), c.x.clone(), c.y.clone(), msg_fr];
-    let h = poseidon.hash(hm_input)?;
+    let hm_input = vec![pk.x, pk.y, c.x, c.y, msg_fr];
+    let h = POSEIDON.hash(hm_input)?;
     let h_b = BigInt::parse_bytes(to_hex(&h).as_bytes(), 16).unwrap();
     Ok(h_b)
 }
@@ -419,14 +409,8 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         return false;
     }
     let msg_fr: Fr = Fr::from_str(&msg.to_string()).unwrap();
-    let hm_input = vec![
-        sig.r_b8.x.clone(),
-        sig.r_b8.y.clone(),
-        pk.x.clone(),
-        pk.y.clone(),
-        msg_fr,
-    ];
-    let hm = match poseidon.hash(hm_input) {
+    let hm_input = vec![sig.r_b8.x, sig.r_b8.y, pk.x, pk.y, msg_fr];
+    let hm = match POSEIDON.hash(hm_input) {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
@@ -443,6 +427,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
 mod tests {
     use super::*;
     extern crate rustc_hex;
+    use rand6::Rng;
     use rustc_hex::{FromHex, ToHex};
 
     #[test]
@@ -720,7 +705,7 @@ mod tests {
                 .unwrap();
 
         // test blake compatible with circomlib implementation
-        let mut h: Vec<u8> = blh(&sk_raw_bytes);
+        let h: Vec<u8> = blh(&sk_raw_bytes);
         assert_eq!(h.to_hex(), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
 
         // test private key

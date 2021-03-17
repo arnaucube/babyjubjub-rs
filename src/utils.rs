@@ -1,3 +1,6 @@
+// BabyJubJub elliptic curve implementation in Rust.
+// For LICENSE check https://github.com/arnaucube/babyjubjub-rs
+
 extern crate num;
 extern crate num_bigint;
 extern crate num_traits;
@@ -106,6 +109,7 @@ pub fn concatenate_arrays<T: Clone>(x: &[T], y: &[T]) -> Vec<T> {
     x.iter().chain(y).cloned().collect()
 }
 
+#[allow(clippy::many_single_char_names)]
 pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     // Tonelli-Shanks Algorithm (https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm)
     //
@@ -115,11 +119,7 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
-    if legendre_symbol(&a, q) != 1 {
-        return Err("not a mod p square".to_string());
-    } else if a == &zero {
-        return Err("not a mod p square".to_string());
-    } else if q == &2.to_bigint().unwrap() {
+    if legendre_symbol(&a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
         return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
         let r = a.modpow(&((q + one) / 4), &q);
@@ -129,8 +129,8 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     let mut s = q - &one;
     let mut e: BigInt = Zero::zero();
     while &s % 2 == zero {
-        s = s >> 1;
-        e = e + &one;
+        s >>= 1;
+        e += &one;
     }
 
     let mut n: BigInt = 2.to_bigint().unwrap();
@@ -146,13 +146,13 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     loop {
         let mut t = b.clone();
         let mut m: BigInt = Zero::zero();
-        while &t != &one {
+        while t != one {
             t = modulus(&(&t * &t), q);
-            m = m + &one;
+            m += &one;
         }
 
         if m == zero {
-            return Ok(y.clone());
+            return Ok(y);
         }
 
         t = g.modpow(&(2.to_bigint().unwrap().modpow(&(&r - &m - 1), q)), q);
@@ -164,6 +164,7 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 }
 
 #[allow(dead_code)]
+#[allow(clippy::many_single_char_names)]
 pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     // Tonelli-Shanks Algorithm (https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm)
     //
@@ -171,11 +172,7 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
-    if legendre_symbol(&a, q) != 1 {
-        return Err("not a mod p square".to_string());
-    } else if a == &zero {
-        return Err("not a mod p square".to_string());
-    } else if q == &2.to_bigint().unwrap() {
+    if legendre_symbol(&a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
         return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
         let r = a.modpow(&((q + one) / 4), &q);
@@ -185,8 +182,8 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     let mut p = q - &one;
     let mut s: BigInt = Zero::zero();
     while &p % 2.to_bigint().unwrap() == zero {
-        s = s + &one;
-        p = p >> 1;
+        s += &one;
+        p >>= 1;
     }
 
     let mut z: BigInt = One::one();
@@ -199,15 +196,15 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
     let mut t = a.modpow(&p, q);
     let mut m = s;
 
-    while &t != &one {
+    while t != one {
         let mut i: BigInt = One::one();
         let mut e: BigInt = 2.to_bigint().unwrap();
         while i < m {
             if t.modpow(&e, q) == one {
                 break;
             }
-            e = e * 2.to_bigint().unwrap();
-            i = i + &one;
+            e *= 2.to_bigint().unwrap();
+            i += &one;
         }
 
         let b = c.modpow(&(2.to_bigint().unwrap().modpow(&(&m - &i - 1), q)), q);
@@ -216,14 +213,14 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
         c = modulus(&(&b * &b), q);
         m = i.clone();
     }
-    return Ok(x);
+    Ok(x)
 }
 
 pub fn legendre_symbol(a: &BigInt, q: &BigInt) -> i32 {
     // returns 1 if has a square root modulo q
     let one: BigInt = One::one();
     let ls: BigInt = a.modpow(&((q - &one) >> 1), &q);
-    if &(ls) == &(q - one) {
+    if ls == q - one {
         return -1;
     }
     1
