@@ -1,31 +1,15 @@
 // BabyJubJub elliptic curve implementation in Rust.
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
-extern crate ff;
-extern crate rand;
 use ff::*;
 
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
-#[macro_use]
-extern crate arrayref;
-extern crate generic_array;
-extern crate num;
-extern crate num_bigint;
-extern crate num_traits;
+use arrayref::array_ref;
 
-extern crate rand6;
-
-// use blake2::{Blake2b, Digest};
-
-#[cfg(feature = "default")]
-extern crate blake_hash; // compatible version with Blake used at circomlib
 #[cfg(feature = "default")]
 use blake_hash::Digest;
-
-#[cfg(feature = "aarch64")]
-extern crate blake; // compatible version with Blake used at circomlib
 
 use std::cmp::min;
 
@@ -36,8 +20,7 @@ use generic_array::GenericArray;
 
 pub mod utils;
 
-#[macro_use]
-extern crate lazy_static;
+use lazy_static::lazy_static;
 
 lazy_static! {
     static ref D: Fr = Fr::from_str("168696").unwrap();
@@ -169,7 +152,7 @@ impl Point {
         let mut exp: PointProjective = self.projective();
         let (_, b) = n.to_bytes_le();
         for i in 0..n.bits() {
-            if test_bit(&b, i) {
+            if test_bit(&b, i.try_into().unwrap()) {
                 r = r.add(&exp);
             }
             exp = exp.add(&exp);
@@ -356,7 +339,7 @@ impl PrivateKey {
     #[allow(clippy::many_single_char_names)]
     pub fn sign_schnorr(&self, m: BigInt) -> Result<(Point, BigInt), String> {
         // random r
-        let mut rng = rand6::thread_rng();
+        let mut rng = rand::thread_rng();
         let k = rng.gen_biguint(1024).to_bigint().unwrap();
 
         // r = k·G
@@ -398,7 +381,7 @@ pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool,
 
 pub fn new_key() -> PrivateKey {
     // https://tools.ietf.org/html/rfc8032#section-5.1.5
-    let mut rng = rand6::thread_rng();
+    let mut rng = rand::thread_rng();
     let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
     let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
     PrivateKey::import(sk_raw_bytes[..32].to_vec()).unwrap()
@@ -426,9 +409,8 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    extern crate rustc_hex;
-    use rand6::Rng;
-    use rustc_hex::{FromHex, ToHex};
+    use rand::Rng;
+    use ::hex;
 
     #[test]
     fn test_add_same_point() {
@@ -598,7 +580,7 @@ mod tests {
         };
         let p_comp = p.compress();
         assert_eq!(
-            p_comp[..].to_hex(),
+            hex::encode(p_comp),
             "53b81ed5bffe9545b54016234682e7b2f699bd42a5e9eae27ff4051bc698ce85"
         );
         let p2 = decompress_point(p_comp).unwrap();
@@ -608,15 +590,13 @@ mod tests {
 
     #[test]
     fn test_point_decompress0() {
-        let y_bytes_raw = "b5328f8791d48f20bec6e481d91c7ada235f1facf22547901c18656b6c3e042f"
-            .from_hex()
+        let y_bytes_raw = hex::decode("b5328f8791d48f20bec6e481d91c7ada235f1facf22547901c18656b6c3e042f")
             .unwrap();
         let mut y_bytes: [u8; 32] = [0; 32];
         y_bytes.copy_from_slice(&y_bytes_raw);
         let p = decompress_point(y_bytes).unwrap();
 
-        let expected_px_raw = "b86cc8d9c97daef0afe1a4753c54fb2d8a530dc74c7eee4e72b3fdf2496d2113"
-            .from_hex()
+        let expected_px_raw = hex::decode("b86cc8d9c97daef0afe1a4753c54fb2d8a530dc74c7eee4e72b3fdf2496d2113")
             .unwrap();
         let mut e_px_bytes: [u8; 32] = [0; 32];
         e_px_bytes.copy_from_slice(&expected_px_raw);
@@ -627,15 +607,13 @@ mod tests {
 
     #[test]
     fn test_point_decompress1() {
-        let y_bytes_raw = "70552d3ff548e09266ded29b33ce75139672b062b02aa66bb0d9247ffecf1d0b"
-            .from_hex()
+        let y_bytes_raw = hex::decode("70552d3ff548e09266ded29b33ce75139672b062b02aa66bb0d9247ffecf1d0b")
             .unwrap();
         let mut y_bytes: [u8; 32] = [0; 32];
         y_bytes.copy_from_slice(&y_bytes_raw);
         let p = decompress_point(y_bytes).unwrap();
 
-        let expected_px_raw = "30f1635ba7d56f9cb32c3ffbe6dca508a68c7f43936af11a23c785ce98cb3404"
-            .from_hex()
+        let expected_px_raw = hex::decode("30f1635ba7d56f9cb32c3ffbe6dca508a68c7f43936af11a23c785ce98cb3404")
             .unwrap();
         let mut e_px_bytes: [u8; 32] = [0; 32];
         e_px_bytes.copy_from_slice(&expected_px_raw);
@@ -647,7 +625,7 @@ mod tests {
     #[test]
     fn test_point_decompress_loop() {
         for _ in 0..5 {
-            let random_bytes = rand6::thread_rng().gen::<[u8; 32]>();
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
             let sk_raw: BigInt = BigInt::from_bytes_le(Sign::Plus, &random_bytes[..]);
             let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
             let mut h: Vec<u8> = blh(&sk_raw_bytes);
@@ -706,7 +684,7 @@ mod tests {
 
         // test blake compatible with circomlib implementation
         let h: Vec<u8> = blh(&sk_raw_bytes);
-        assert_eq!(h.to_hex(), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
+        assert_eq!(hex::encode(h), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
 
         // test private key
         let sk = PrivateKey::import(

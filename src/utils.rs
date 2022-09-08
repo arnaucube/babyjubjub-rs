@@ -1,10 +1,6 @@
 // BabyJubJub elliptic curve implementation in Rust.
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
-extern crate num;
-extern crate num_bigint;
-extern crate num_traits;
-
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Zero};
 
