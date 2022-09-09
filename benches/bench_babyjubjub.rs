@@ -9,7 +9,7 @@ extern crate num;
 extern crate num_bigint;
 use num_bigint::{BigInt, ToBigInt};
 
-use babyjubjub_rs::{utils, Point};
+use babyjubjub_rs::Point;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let p: Point = Point {
@@ -44,7 +44,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     let sk = babyjubjub_rs::new_key();
-    let pk = sk.public().unwrap();
+    let pk = sk.public();
     let msg = 5.to_bigint().unwrap();
     c.bench_function("sign", |b| b.iter(|| sk.sign(msg.clone())));
     let sig = sk.sign(msg.clone()).unwrap();

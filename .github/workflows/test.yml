@@ -12,4 +12,4 @@ jobs:
     - name: Run tests
       run: |
         cargo test --verbose
-        cargo test --verbose --no-default-features --features=aarch64
+        cargo test --verbose --features=aarch64

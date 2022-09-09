@@ -1,6 +1,6 @@
 [package]
 name = "babyjubjub-rs"
-version = "0.0.9"
+version = "0.0.10"
 authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2021"
 license = "GPL-3.0"

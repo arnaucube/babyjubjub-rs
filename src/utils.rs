@@ -115,10 +115,10 @@ pub fn modsqrt(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
-    if legendre_symbol(&a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
+    if legendre_symbol(a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
         return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
-        let r = a.modpow(&((q + one) / 4), &q);
+        let r = a.modpow(&((q + one) / 4), q);
         return Ok(r);
     }
 
@@ -168,10 +168,10 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 
     let zero: BigInt = Zero::zero();
     let one: BigInt = One::one();
-    if legendre_symbol(&a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
+    if legendre_symbol(a, q) != 1 || a == &zero || q == &2.to_bigint().unwrap() {
         return Err("not a mod p square".to_string());
     } else if q % 4.to_bigint().unwrap() == 3.to_bigint().unwrap() {
-        let r = a.modpow(&((q + one) / 4), &q);
+        let r = a.modpow(&((q + one) / 4), q);
         return Ok(r);
     }
 
@@ -215,7 +215,7 @@ pub fn modsqrt_v2(a: &BigInt, q: &BigInt) -> Result<BigInt, String> {
 pub fn legendre_symbol(a: &BigInt, q: &BigInt) -> i32 {
     // returns 1 if has a square root modulo q
     let one: BigInt = One::one();
-    let ls: BigInt = a.modpow(&((q - &one) >> 1), &q);
+    let ls: BigInt = a.modpow(&((q - &one) >> 1), q);
     if ls == q - one {
         return -1;
     }
