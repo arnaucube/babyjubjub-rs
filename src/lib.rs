@@ -57,7 +57,7 @@ lazy_static! {
     )
         .unwrap()
         >> 3;
-    static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
+    pub static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
 }
 
 #[derive(Clone, Debug)]
@@ -248,6 +248,7 @@ fn blh(b: &[u8]) -> Vec<u8> {
     let digest = h.finalize();
     return digest[..].to_vec();
 }
+
 #[derive(Debug, Clone)]
 pub struct Signature {
     pub r_b8: Point,
