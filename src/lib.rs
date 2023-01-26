@@ -2,7 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-
+use serde::{Serialize, Deserialize, ser::SerializeSeq};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
@@ -138,6 +138,17 @@ pub struct Point {
     pub y: Fr,
 }
 
+impl Serialize for Point {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+                let mut seq = serializer.serialize_seq(Some(2))?;
+                seq.serialize_element(&self.x.to_string())?;
+                seq.serialize_element(&self.y.to_string())?;
+                seq.end()
+    }
+}
+
 impl Point {
     pub fn projective(&self) -> PointProjective {
         PointProjective {
@@ -252,14 +263,14 @@ pub fn blh(b: &[u8]) -> Vec<u8> {
 #[derive(Debug, Clone)]
 pub struct Signature {
     pub r_b8: Point,
-    pub s: BigInt,
+    pub s: String,
 }
 
 impl Signature {
     pub fn compress(&self) -> [u8; 64] {
         let mut b: Vec<u8> = Vec::new();
         b.append(&mut self.r_b8.compress().to_vec());
-        let (_, s_bytes) = self.s.to_bytes_le();
+        let (_, s_bytes) = self.s.parse::<BigInt>().unwrap().to_bytes_le();
         let mut s_32bytes: [u8; 32] = [0; 32];
         let len = min(s_bytes.len(), s_32bytes.len());
         s_32bytes[..len].copy_from_slice(&s_bytes[..len]);
@@ -276,7 +287,7 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
     let r_b8 = decompress_point(r_b8_bytes);
     match r_b8 {
         Result::Err(err) => Err(err),
-        Result::Ok(res) => Ok(Signature { r_b8: res, s }),
+        Result::Ok(res) => Ok(Signature { r_b8: res, s: s.to_string() }),
     }
 }
 
@@ -345,13 +356,13 @@ impl PrivateKey {
         let hm_input = vec![r_b8.x, r_b8.y, a.x, a.y, msg_fr];
         let hm = POSEIDON.hash(hm_input)?;
 
-        let mut s = &self.scalar_key() << 3;
+        let mut s: BigInt = &self.scalar_key() << 3;
         let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
         s = hm_b * s;
         s = r + s;
         s %= &SUBORDER.clone();
 
-        Ok(Signature { r_b8, s })
+        Ok(Signature { r_b8, s: s.to_string() })
     }
 
     #[allow(clippy::many_single_char_names)]
@@ -415,7 +426,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = B8.mul_scalar(&sig.s);
+    let l = B8.mul_scalar(&sig.s.parse::<BigInt>().unwrap());
     let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
     let r = sig
         .r_b8
