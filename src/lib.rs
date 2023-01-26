@@ -2,7 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-use serde::{Serialize, Deserialize, ser::SerializeSeq};
+use serde::{Serialize, ser::SerializeSeq};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
@@ -260,7 +260,7 @@ pub fn blh(b: &[u8]) -> Vec<u8> {
     return digest[..].to_vec();
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Signature {
     pub r_b8: Point,
     pub s: String,
