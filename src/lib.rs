@@ -241,7 +241,7 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
 //     hash.to_vec()
 // }
 
-fn blh(b: &[u8]) -> Vec<u8> {
+pub fn blh(b: &[u8]) -> Vec<u8> {
     println!("TODO: add test that this new blake512 function is giving correct output. Not doing so could have unlikely yet critical implications");
     let mut h = Blake2b512::new();
     h.update(b);
