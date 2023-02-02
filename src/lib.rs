@@ -13,7 +13,7 @@ use arrayref::array_ref;
 
 // #[cfg(feature = "aarch64")]
 // extern crate blake; // compatible version with Blake used at circomlib
-use blake2::{Blake2b512, Blake2s256, Digest};
+use blake2::{Blake2b512, Digest};
 // use hex_literal::hex;
 use std::cmp::min;
 
@@ -155,6 +155,13 @@ impl Point {
             x: self.x,
             y: self.y,
             z: Fr::one(),
+        }
+    }
+
+    pub fn inverse(&self) -> Point {
+        Point {
+            x: self.x.inverse().unwrap(),
+            y: self.y
         }
     }
 
@@ -382,6 +389,21 @@ impl PrivateKey {
         let s = k + &sk_scalar * &h;
         Ok((r, s))
     }
+
+    // pub fn encrypt_elgamal(&self, msg: Point) -> [Point; 2] {
+   
+    // }
+
+    pub fn decrypt_elgamal(&self, c1: Point, c2: Point) -> Point {
+        let shared_secret = c1.mul_scalar(&self.scalar_key());
+        let msg = c2.projective()
+                                    .add(
+                                        &shared_secret.inverse().projective()
+                                    )
+                                    .affine();
+        msg
+    }
+
 }
 
 pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String> {
