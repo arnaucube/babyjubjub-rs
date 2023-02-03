@@ -430,7 +430,6 @@ impl PrivateKey {
 // encrypts msg to public key to_pubkey, using some random scalar nonce
 pub fn encrypt_elgamal(to_pubkey: &Point, nonce: &BigInt, msg: &Point) -> ElGamalEncryption {
     let shared_secret = to_pubkey.mul_scalar(&nonce);
-    println!("Shared Secret 2 {:?}", shared_secret);
     let public_nonce = B8.mul_scalar(&nonce);
     // let msg_point = point_for_msg(msg);
     let msg_plus_secret = msg.projective().add(
