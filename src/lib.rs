@@ -418,9 +418,7 @@ impl PrivateKey {
     pub fn decrypt_elgamal(&self, encrypted_point: ElGamalEncryption) -> Point {
         // Make sure inputs aren't bad (i imagine this check could be skipped for performance reasons, but it seems a sanity check here would be helpful)
         assert!(encrypted_point.c1.on_curve() && encrypted_point.c2.on_curve());
-
         let shared_secret = encrypted_point.c1.mul_scalar(&self.scalar_key());
-        println!("Shared Secret {:?}", shared_secret);
         // Subtract the shared secret
         encrypted_point.c2.projective().add(
                 &shared_secret.inverse().projective()
