@@ -430,7 +430,7 @@ impl PrivateKey {
 }
 
 // encrypts msg to public key to_pubkey, using some random scalar nonce
-pub fn encrypt_elgamal(to_pubkey: Point, nonce: BigInt, msg: &Point) -> ElGamalEncryption {
+pub fn encrypt_elgamal(to_pubkey: &Point, nonce: &BigInt, msg: &Point) -> ElGamalEncryption {
     let shared_secret = to_pubkey.mul_scalar(&nonce);
     println!("Shared Secret 2 {:?}", shared_secret);
     let public_nonce = B8.mul_scalar(&nonce);
@@ -529,8 +529,8 @@ mod tests {
         let some_point = B8.mul_scalar(&BigInt::from_u8(0x69).unwrap());
         let some_privkey = new_key();
         let some_point_encrypted = encrypt_elgamal(
-            some_privkey.public(), 
-            BigInt::parse_bytes(b"ABCDEF123456789", 16).unwrap(), 
+            &some_privkey.public(), 
+            &BigInt::parse_bytes(b"ABCDEF123456789", 16).unwrap(), 
             &some_point
         );
         let some_point_encrypted_decrypted = some_privkey.decrypt_elgamal(some_point_encrypted);
