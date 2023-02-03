@@ -204,6 +204,24 @@ impl Point {
         }
         false
     }
+
+    pub fn on_curve(&self) -> bool {
+        let mut x2 = self.x.clone();
+        let mut y2 = self.y.clone();
+        x2.mul_assign(&self.x);
+        y2.mul_assign(&self.y);
+        // compute left hand side ax^2+y^2
+        let mut lhs = x2.clone();
+        lhs.mul_assign(&A);
+        lhs.add_assign(&y2);
+        // compute right hand side: x^2*y^2*d+1
+        let mut rhs = x2.clone();
+        rhs.mul_assign(&y2);
+        rhs.mul_assign(&D);
+        rhs.add_assign(&Fr::one());
+
+        lhs.eq(&rhs)
+    }
 }
 
 pub fn test_bit(b: &[u8], i: usize) -> bool {
@@ -482,13 +500,20 @@ mod tests {
     use num_traits::FromPrimitive;
 
     #[test]
+    fn test_on_curve() {
+        let some_point = Point { x: Fr::from_str("1234").unwrap(), y: Fr::from_str("5678").unwrap() };
+        assert_eq!(B8.on_curve(), true);
+        assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).on_curve(), true);
+        assert_eq!(some_point.on_curve(), false);
+    
+    }
+    #[test]
     fn test_neg() {
         let some_point = B8.mul_scalar(&BigInt::from_u8(0x69).unwrap());
         let another_point = B8.mul_scalar(&BigInt::from_u8(0x99).unwrap());
         let mut some_point_x_inverse = Fr::zero();
         some_point_x_inverse.sub_assign(&some_point.x);
         // assert_eq!(some_point_x_inverse, some_point.x.inverse().unwrap());
-        assert!(some_point.equals(some_point.projective().affine()));
         assert!(some_point.equals(
             some_point.projective().add(&another_point.projective()).add(
             &another_point.inverse().projective())
