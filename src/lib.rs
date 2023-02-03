@@ -300,8 +300,8 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
 }
 
 pub struct ElGamalEncryption {
-    c1: Point,
-    c2: Point
+    pub c1: Point,
+    pub c2: Point
 }
 
 pub struct PrivateKey {
