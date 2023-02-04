@@ -3,6 +3,7 @@
 
 use ff::*;
 use serde::{Serialize, ser::SerializeSeq};
+use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
@@ -15,7 +16,7 @@ use arrayref::array_ref;
 // extern crate blake; // compatible version with Blake used at circomlib
 use blake2::{Blake2b512, Digest};
 // use hex_literal::hex;
-use std::cmp::min;
+use std::{cmp::min, io::Bytes};
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::One;
@@ -203,6 +204,33 @@ impl Point {
             return true;
         }
         false
+    }
+
+    // // Use a variation of the Koblitz method
+    // pub fn from_msg_vartime(msg: &[u8; 28]) -> Point {
+    // }
+
+    pub fn from_msg(msg: &[u8; 28]) -> Point {
+        // This is the largest point that can fit BabyJubJub curve while still allowing 8 extra bytes, as long as those bytes are less than f0000001
+        // Babyjubjub r parameter is 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+        assert!(
+            BigInt::from_bytes_be(Sign::Plus, msg) 
+            < 
+            BigInt::parse_bytes(b"30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",16).unwrap()
+        );
+        let mut acc: u32 = 0;
+        let mut pt: Point;
+        let mut is_residue: bool = false;
+        let mut on_curve: bool = false;
+        while (acc <= 0xf0000001) && !on_curve {
+            let acc_bytes: [u8; 4] = acc.to_be_bytes();
+            // let mut buff: ArrayVec::<[u8; 32]> = concat_bytes!()[msg, acc_bytes]);
+            let mut buf = BytesMut::with_capacity(32);
+            buf.put_slice(msg);
+            buf.put_u32(acc);
+            println!("bytes {:?}", buf);
+        }
+        Point {x:Fr::zero(), y:Fr::zero()}
     }
 
     pub fn on_curve(&self) -> bool {
