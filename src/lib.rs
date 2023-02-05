@@ -270,6 +270,7 @@ impl Point {
                 y = numerator.sqrt();
             } else {
                 acc += 1;
+                x.add_assign(&Fr::one());
             }
         }
         // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
@@ -578,6 +579,22 @@ mod tests {
         assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).on_curve(), true);
         assert_eq!(some_point.on_curve(), false);
     
+    }
+    #[test]
+    fn test_from_msg_vartime() {
+        let MAX_MSG: BigInt = BigInt::parse_bytes(
+            b"2188824287183927522224640574525727508854836440041603434369820418657580849",10 // Prime r but missing last 4 digits
+        ).unwrap();
+
+        let msg = 123456789.to_bigint().unwrap();
+        assert!(Point::from_msg_vartime(msg).on_curve());
+
+        // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
+        for n in 0..20 {
+            let m = rand::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+            assert!(Point::from_msg_vartime(m).on_curve());
+        }
+
     }
     #[test]
     fn test_neg() {
