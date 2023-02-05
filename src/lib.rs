@@ -289,6 +289,13 @@ impl Point {
 
         lhs.eq(&rhs)
     }
+
+    pub fn from_xy_strings(x: String, y: String) -> Point {
+        Point {
+            x: Fr::from_str(&x).unwrap(),
+            y: Fr::from_str(&y).unwrap()
+        }
+    }
 }
 
 pub fn test_bit(b: &[u8], i: usize) -> bool {
