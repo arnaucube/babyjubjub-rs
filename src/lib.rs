@@ -206,31 +206,75 @@ impl Point {
         false
     }
 
-    // // Use a variation of the Koblitz method
-    // pub fn from_msg_vartime(msg: &[u8; 28]) -> Point {
-    // }
-
-    pub fn from_msg(msg: &[u8; 28]) -> Point {
+    // Use a variation of the Koblitz method
+    pub fn from_msg_vartime(msg: BigInt/*msg: &[u8; 28]*/) -> Point {
         // This is the largest point that can fit BabyJubJub curve while still allowing 8 extra bytes, as long as those bytes are less than f0000001
         // Babyjubjub r parameter is 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
-        assert!(
-            BigInt::from_bytes_be(Sign::Plus, msg) 
-            < 
-            BigInt::parse_bytes(b"30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",16).unwrap()
-        );
-        let mut acc: u32 = 0;
-        let mut pt: Point;
-        let mut is_residue: bool = false;
+        // assert!(
+        //     BigInt::from_bytes_be(Sign::Plus, msg) 
+        //     < 
+        //     BigInt::parse_bytes(b"30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f00000",16).unwrap()
+        // );
+        // let mut acc: u32 = 0;
+        // let mut pt: Point;
+        // let mut is_residue: bool = false;
+        // let mut on_curve: bool = false;
+        // while (acc <= 0xf0000001) && !on_curve {
+        //     let acc_bytes: [u8; 4] = acc.to_be_bytes();
+        //     // let mut buff: ArrayVec::<[u8; 32]> = concat_bytes!()[msg, acc_bytes]);
+        //     let mut buf = BytesMut::with_capacity(32);
+        //     buf.put_slice(msg);
+        //     buf.put_u32(acc);
+        //     Fr::from_str("123").unwrap().legendre()
+        //     println!("bytes {:?}", buf);
+        // }
+        
+        // Koblitz decoding method, adapted for this curve: 
+        // message m must be < r/10000
+        // Try finding a point with y value m*10000+0, m*10000+1, .... m*10000+5617 (5617 are last four digits of prime r)
+        // There is an approximately 1/(2^1000) chance no point will be encodable,
+        // since each y value has probability of about 1/2 of being on the curve
+        let MAX_MSG: BigInt = BigInt::parse_bytes(
+            b"2188824287183927522224640574525727508854836440041603434369820418657580849",10 // Prime r but missing last 4 digits
+        ).unwrap();
+        let ACC_UNDER = 5617; // Last four digits of prime r. MAX_MSG * 10000 + ACC_UNDER = r
+        assert!(msg <= MAX_MSG);
+        let mut acc: u16 = 0;
         let mut on_curve: bool = false;
-        while (acc <= 0xf0000001) && !on_curve {
-            let acc_bytes: [u8; 4] = acc.to_be_bytes();
-            // let mut buff: ArrayVec::<[u8; 32]> = concat_bytes!()[msg, acc_bytes]);
-            let mut buf = BytesMut::with_capacity(32);
-            buf.put_slice(msg);
-            buf.put_u32(acc);
-            println!("bytes {:?}", buf);
+        // Start with message * 10000 as x coordinate
+        let mut x: Fr = Fr::from_str(&msg.to_str_radix(10)).unwrap();
+        let mut y: Option<Fr> = None; 
+        x.mul_assign(&Fr::from_str("10000").unwrap());
+
+        let one = Fr::one();
+        // let m10000 = 1000.to_bigint().unwrap() * msg;
+        while (acc < ACC_UNDER) && !on_curve {
+            // If x is on curve, calculate what y^2 should be, by (ax^2 - 1) / (dx^2 - 1)
+            let mut x2 = x.clone();
+            x2.mul_assign(&x);
+
+            // Numerator will be (ax^2 - 1) and denominator will be (dx^2 - 1)
+            let mut numerator = x2;
+            let mut denominator = x2.clone();
+
+            numerator.mul_assign(&A);
+            denominator.mul_assign(&D);
+
+            numerator.sub_assign(&one);
+            denominator.sub_assign(&one);
+
+            // If the point is on the curve, numerator/denominator will be y^2. Check whether numerator/denominator is a quadratic residue:
+            numerator.mul_assign(&denominator.inverse().unwrap()); // Note: this is no longer a numerator since it was divided in this step
+            if let LegendreSymbol::QuadraticResidue = numerator.legendre() {
+                on_curve=true;
+                y = numerator.sqrt();
+            } else {
+                acc += 1;
+            }
         }
-        Point {x:Fr::zero(), y:Fr::zero()}
+        // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
+        Point {x:x, y:y.unwrap()}
+
     }
 
     pub fn on_curve(&self) -> bool {
