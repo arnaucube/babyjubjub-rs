@@ -182,7 +182,7 @@ impl Point {
         }
     }
 
-    pub fn inverse(&self) -> Point {
+    pub fn neg(&self) -> Point {
         let mut x_inverse = Fr::zero();
         x_inverse.sub_assign(&self.x);
         Point {
@@ -278,7 +278,6 @@ impl Point {
     // Converts a point to a message by dividing by 1024 (a.k.a. right-shifting by 10)
     pub fn to_msg(&self) -> Fr {
         let mut msg = self.x.clone().into_repr();
-        // println!("{:?}", self.x.into_repr().shr(10));
         msg.shr(10);
         Fr::from_repr(msg).unwrap()
 
@@ -507,7 +506,7 @@ impl PrivateKey {
         let shared_secret = encrypted_point.c1.mul_scalar(&self.scalar_key());
         // Subtract the shared secret
         encrypted_point.c2.projective().add(
-                &shared_secret.inverse().projective()
+                &shared_secret.neg().projective()
         ).affine()
     }
 
@@ -637,7 +636,7 @@ mod tests {
         // assert_eq!(some_point_x_inverse, some_point.x.inverse().unwrap());
         assert!(some_point.equals(
             some_point.projective().add(&another_point.projective()).add(
-            &another_point.inverse().projective())
+            &another_point.neg().projective())
             .affine()
         ));
 
