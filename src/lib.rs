@@ -59,6 +59,17 @@ lazy_static! {
         .unwrap()
         >> 3;
     pub static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
+    
+    // MAX_MSG is maximum message length that can be encoded into a point. This will be Q / KOBLITZ_NUMBER
+    pub static ref MAX_MSG: BigInt = BigInt::parse_bytes(
+        b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
+    )
+        .unwrap()
+        >> 10;
+    // An arbitrary number for Koblitz method of encoding string to point. 1024 is convenient compared to original 1000 to do bitshifts instead of multiplications/divisions
+   pub static ref KOBLITZ_NUMBER: Fr = Fr::from_str("1024").unwrap();
+   pub static ref KOBLITZ_NUMBER_INV: Fr = Fr::from_str("1024").unwrap().inverse().unwrap();
+
 }
 
 #[derive(Clone, Debug)]
@@ -207,24 +218,21 @@ impl Point {
     }
 
     // Koblitz decoding method, adapted for this curve: 
-        // message m must be < r/10000
-        // Try finding a point with y value m*10000+0, m*10000+1, .... m*10000+5617 (5617 are last four digits of prime r)
-        // There is an approximately 1/(2^1000) chance no point will be encodable,
+        // message m must be < r/(2^10) //using 2^10=1024 instead of Koblitz' parameter of 1000, so arithmetic can happen easily mod 2. This shouldn't have any (negative) impact: https://crypto.stackexchange.com/questions/103132/encoding-a-message-as-points-on-elliptic-curve
+        // Try finding a point with y value m*1024+0, m*1024+1, .... m*1024+5617 (5617 are last four digits of prime r)
+        // There is an approximately 1/(2^1024) chance no point will be encodable,
         // since each y value has probability of about 1/2 of being on the curve
-    pub fn from_msg_vartime(msg: BigInt) -> Point {
-        let MAX_MSG: BigInt = BigInt::parse_bytes(
-            b"2188824287183927522224640574525727508854836440041603434369820418657580849",10 // Prime r but missing last 4 digits
-        ).unwrap();
-        let ACC_UNDER = 5617; // Last four digits of prime r. MAX_MSG * 10000 + ACC_UNDER = r
-        assert!(msg <= MAX_MSG);
+    pub fn from_msg_vartime(msg: &BigInt) -> Point {
+        let ACC_UNDER = 1024; // Last four digits of prime r. MAX_MSG * 1024 + ACC_UNDER = r
+        assert!(msg <= &MAX_MSG);
         let mut acc: u16 = 0;
         let mut on_curve: bool = false;
         // Start with message * 10000 as x coordinate
         let mut x: Fr = Fr::from_str(&msg.to_str_radix(10)).unwrap();
         let mut y: Option<Fr> = None; 
-        x.mul_assign(&Fr::from_str("10000").unwrap());
+        x.mul_assign(&Fr::from_str(&ACC_UNDER.to_string()).unwrap());
         let one = Fr::one();
-        
+
         while (acc < ACC_UNDER) && !on_curve {
             // If x is on curve, calculate what y^2 should be, by (ax^2 - 1) / (dx^2 - 1)
             let mut x2 = x.clone();
@@ -252,6 +260,15 @@ impl Point {
         }
         // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
         Point {x:x, y:y.unwrap()}
+
+    }
+
+    // Converts a point to a message by dividing by 1024 (a.k.a. right-shifting by 10)
+    pub fn to_msg(&self) -> Fr {
+        let mut msg = self.x.clone().into_repr();
+        // println!("{:?}", self.x.into_repr().shr(10));
+        msg.shr(10);
+        Fr::from_repr(msg).unwrap()
 
     }
 
@@ -559,19 +576,38 @@ mod tests {
     }
     #[test]
     fn test_from_msg_vartime() {
-        let MAX_MSG: BigInt = BigInt::parse_bytes(
-            b"2188824287183927522224640574525727508854836440041603434369820418657580849",10 // Prime r but missing last 4 digits
-        ).unwrap();
-
         let msg = 123456789.to_bigint().unwrap();
-        assert!(Point::from_msg_vartime(msg).on_curve());
+        assert!(Point::from_msg_vartime(&msg).on_curve());
 
         // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
         for n in 0..20 {
             let m = rand::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
-            assert!(Point::from_msg_vartime(m).on_curve());
+            assert!(Point::from_msg_vartime(&m).on_curve());
         }
 
+    }
+
+    #[test]
+    fn test_from_to_msg() {        
+        // Convert from msg to point back to msg and make sure it works:
+        let msg = 123456789.to_bigint().unwrap();
+        assert!(
+            Point::from_msg_vartime(&msg).to_msg()
+            .eq(
+            &Fr::from_str(&msg.to_string()).unwrap()
+            )
+        );
+
+        // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
+        for n in 0..20 {
+            let m = rand::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+            assert!(
+                Point::from_msg_vartime(&m).to_msg()
+                .eq(
+                &Fr::from_str(&m.to_string()).unwrap()
+                )
+            );
+        }
     }
     #[test]
     fn test_neg() {
