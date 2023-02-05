@@ -2,6 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
+use num::Num;
 use serde::{Serialize, ser::SerializeSeq};
 use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
@@ -150,13 +151,24 @@ pub struct Point {
     pub y: Fr,
 }
 
+pub trait ToDecimalString {
+    fn to_dec_string(&self) -> String;
+}
+impl ToDecimalString for Fr {
+    fn to_dec_string(&self) -> String {
+        let mut s = self.to_string();
+        let hex_str = s[5..s.len()-1].to_string();
+        BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
+    }
+}
+
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer {
                 let mut seq = serializer.serialize_seq(Some(2))?;
-                seq.serialize_element(&self.x.to_string())?;
-                seq.serialize_element(&self.y.to_string())?;
+                seq.serialize_element(&self.x.to_dec_string())?;
+                seq.serialize_element(&self.y.to_dec_string())?;
                 seq.end()
     }
 }
@@ -390,7 +402,7 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
         Result::Ok(res) => Ok(Signature { r_b8: res, s: s.to_string() }),
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ElGamalEncryption {
     pub c1: Point,
     pub c2: Point
