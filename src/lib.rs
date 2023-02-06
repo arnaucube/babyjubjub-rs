@@ -191,6 +191,9 @@ impl Point {
         }
     }
 
+    pub fn add(&self, another_point: &Point) -> Point {
+        self.projective().add(&another_point.projective()).affine()
+    }
     pub fn neg(&self) -> Point {
         let mut x_inverse = Fr::zero();
         x_inverse.sub_assign(&self.x);
@@ -514,9 +517,7 @@ impl PrivateKey {
         assert!(encrypted_point.c1.on_curve() && encrypted_point.c2.on_curve());
         let shared_secret = encrypted_point.c1.mul_scalar(&self.scalar_key());
         // Subtract the shared secret
-        encrypted_point.c2.projective().add(
-                &shared_secret.neg().projective()
-        ).affine()
+        encrypted_point.c2.add(&shared_secret.neg())
     }
 
 }
@@ -526,10 +527,8 @@ pub fn encrypt_elgamal(to_pubkey: &Point, nonce: &BigInt, msg: &Point) -> ElGama
     let shared_secret = to_pubkey.mul_scalar(&nonce);
     let public_nonce = B8.mul_scalar(&nonce);
     // let msg_point = point_for_msg(msg);
-    let msg_plus_secret = msg.projective().add(
-                                &shared_secret.projective()
-                                )
-    .affine();
+    let msg_plus_secret = msg.add(&shared_secret);
+
     ElGamalEncryption {
         c1: public_nonce,
         c2: msg_plus_secret
@@ -554,9 +553,9 @@ pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool,
     // r + h · x
     let h = schnorr_hash(&pk, m, &r)?;
     let pk_h = pk.mul_scalar(&h);
-    let right = r.projective().add(&pk_h.projective());
+    let right = r.add(&pk_h);
 
-    Ok(sg.equals(right.affine()))
+    Ok(sg.equals(right))
 }
 
 pub fn new_key() -> PrivateKey {
@@ -581,9 +580,8 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
     let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
     let r = sig
         .r_b8
-        .projective()
-        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)).projective());
-    l.equals(r.affine())
+        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)));
+    l.equals(r)
 }
 
 #[cfg(test)]
@@ -644,9 +642,8 @@ mod tests {
         some_point_x_inverse.sub_assign(&some_point.x);
         // assert_eq!(some_point_x_inverse, some_point.x.inverse().unwrap());
         assert!(some_point.equals(
-            some_point.projective().add(&another_point.projective()).add(
-            &another_point.neg().projective())
-            .affine()
+            some_point.add(&another_point).add(
+            &another_point.neg())
         ));
 
     }
@@ -758,8 +755,8 @@ mod tests {
             .unwrap(),
         };
         let res_m = p.mul_scalar(&3.to_bigint().unwrap());
-        let res_a = p.projective().add(&p.projective());
-        let res_a = res_a.add(&p.projective()).affine();
+        let res_a = p.add(&p);
+        let res_a = res_a.add(&p);
         assert_eq!(res_m.x, res_a.x);
         assert_eq!(
             res_m.x,
