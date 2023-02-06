@@ -268,7 +268,7 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
 }
 
 pub struct PrivateKey {
-    key: [u8; 32],
+    pub key: [u8; 32],
 }
 
 impl PrivateKey {
