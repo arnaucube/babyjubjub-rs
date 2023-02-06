@@ -17,7 +17,7 @@ use arrayref::array_ref;
 // extern crate blake; // compatible version with Blake used at circomlib
 use blake2::{Blake2b512, Digest};
 // use hex_literal::hex;
-use std::{cmp::min, io::Bytes};
+use std::{cmp::min, io::Bytes, str::FromStr};
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::One;
@@ -159,6 +159,15 @@ impl ToDecimalString for Fr {
         let mut s = self.to_string();
         let hex_str = s[5..s.len()-1].to_string();
         BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
+    }
+}
+pub trait FrToBigInt {
+    fn to_bigint(&self) -> BigInt;
+}
+
+impl FrToBigInt for Fr {
+    fn to_bigint(&self) -> BigInt {
+        BigInt::from_str(&self.to_dec_string()).unwrap()
     }
 }
 
