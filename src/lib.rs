@@ -2,6 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
+use std::iter::Sum;
 use num::Num;
 use serde::{Serialize, ser::SerializeSeq};
 use bytes::{BytesMut, BufMut};
@@ -161,15 +162,43 @@ impl ToDecimalString for Fr {
         BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
     }
 }
-pub trait FrToBigInt {
+pub trait FrBigIntConversion {
+    fn from_bigint(bi: &BigInt) -> Fr;
     fn to_bigint(&self) -> BigInt;
 }
 
-impl FrToBigInt for Fr {
+impl FrBigIntConversion for Fr {
+    // Note: this could probably be more efficient by converting bigint to raw repr to Fr
+    fn from_bigint(bi: &BigInt) -> Fr {
+        Fr::from_str(&bi.to_string()).unwrap()
+    }
     fn to_bigint(&self) -> BigInt {
         BigInt::from_str(&self.to_dec_string()).unwrap()
     }
 }
+
+pub struct FrWrapper {
+    pub fr: Fr
+}
+impl FrWrapper {
+    pub fn from_fr(fr: Fr) -> FrWrapper {
+        FrWrapper { fr: fr }
+    }
+}
+
+impl Sum for FrWrapper {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(
+            |frw1,frw2| {
+                let mut tmp = frw1.fr.clone();
+                tmp.add_assign(&frw2.fr);
+                FrWrapper { fr: tmp }
+            }
+
+        ).unwrap()
+    }
+}
+
 
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
