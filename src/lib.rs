@@ -9,6 +9,17 @@ use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
+extern crate rand_new;
+extern crate rand;
+#[macro_use]
+extern crate ff;
+
+// Create a new primefield for the subgroup defined by the base point, order Fl:
+#[derive(PrimeField)]
+#[PrimeFieldModulus = "2736030358979909402780800718157159386076813972158567259200215660948447373041"]
+#[PrimeFieldGenerator = "7"] // TODO: double check this is a valid generator!!!
+pub struct Fl(FpRepr);
+
 use arrayref::array_ref;
 
 // #[cfg(not(feature = "aarch64"))]
@@ -54,7 +65,7 @@ lazy_static! {
         .unwrap();
 
     // SUBORDER = ORDER >> 3
-    static ref SUBORDER: BigInt = &BigInt::parse_bytes(
+    pub static ref SUBORDER: BigInt = &BigInt::parse_bytes(
         b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
         10,
     )
@@ -69,8 +80,8 @@ lazy_static! {
         .unwrap()
         >> 10;
     // An arbitrary number for Koblitz method of encoding string to point. 1024 is convenient compared to original 1000 to do bitshifts instead of multiplications/divisions
-   pub static ref KOBLITZ_NUMBER: Fr = Fr::from_str("1024").unwrap();
-   pub static ref KOBLITZ_NUMBER_INV: Fr = Fr::from_str("1024").unwrap().inverse().unwrap();
+//    pub static ref KOBLITZ_NUMBER: Fr = Fr::from_str("1024").unwrap();
+//    pub static ref KOBLITZ_NUMBER_INV: Fr = Fr::from_str("1024").unwrap().inverse().unwrap();
 
 }
 
@@ -162,15 +173,33 @@ impl ToDecimalString for Fr {
         BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
     }
 }
-pub trait FrBigIntConversion {
-    fn from_bigint(bi: &BigInt) -> Fr;
+
+impl ToDecimalString for Fl {
+    fn to_dec_string(&self) -> String {
+        let mut s = self.to_string();
+        let hex_str = s[5..s.len()-1].to_string();
+        BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
+    }
+}
+pub trait FrBigIntConversion<T> {
+    fn from_bigint(bi: &BigInt) -> T;
     fn to_bigint(&self) -> BigInt;
 }
 
-impl FrBigIntConversion for Fr {
+impl FrBigIntConversion<Fr> for Fr {
     // Note: this could probably be more efficient by converting bigint to raw repr to Fr
     fn from_bigint(bi: &BigInt) -> Fr {
         Fr::from_str(&bi.to_string()).unwrap()
+    }
+    fn to_bigint(&self) -> BigInt {
+        BigInt::from_str(&self.to_dec_string()).unwrap()
+    }
+}
+
+impl FrBigIntConversion<Fl> for Fl {
+    // Note: this could probably be more efficient by converting bigint to raw repr to Fr
+    fn from_bigint(bi: &BigInt) -> Fl {
+        Fl::from_str(&bi.to_string()).unwrap()
     }
     fn to_bigint(&self) -> BigInt {
         BigInt::from_str(&self.to_dec_string()).unwrap()
@@ -525,7 +554,7 @@ impl PrivateKey {
     #[allow(clippy::many_single_char_names)]
     pub fn sign_schnorr(&self, m: BigInt) -> Result<(Point, BigInt), String> {
         // random r
-        let mut rng = rand::thread_rng();
+        let mut rng = rand_new::thread_rng();
         let k = rng.gen_biguint(1024).to_bigint().unwrap();
 
         // r = k·G
@@ -589,7 +618,7 @@ pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool,
 
 pub fn new_key() -> PrivateKey {
     // https://tools.ietf.org/html/rfc8032#section-5.1.5
-    let mut rng = rand::thread_rng();
+    let mut rng = rand_new::thread_rng();
     let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
     let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
     PrivateKey::import(sk_raw_bytes[..32].to_vec()).unwrap()
@@ -617,7 +646,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
 mod tests {
     use super::*;
     use ::hex;
-    use rand::Rng;
+    use rand_new::Rng;
     use num_traits::FromPrimitive;
 
     #[test]
@@ -635,7 +664,7 @@ mod tests {
 
         // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
         for n in 0..20 {
-            let m = rand::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+            let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
             assert!(Point::from_msg_vartime(&m).on_curve());
         }
 
@@ -654,7 +683,7 @@ mod tests {
 
         // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
         for n in 0..20 {
-            let m = rand::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+            let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
             assert!(
                 Point::from_msg_vartime(&m).to_msg()
                 .eq(
@@ -907,7 +936,7 @@ mod tests {
     #[test]
     fn test_point_decompress_loop() {
         for _ in 0..5 {
-            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            let random_bytes = rand_new::thread_rng().gen::<[u8; 32]>();
             let sk_raw: BigInt = BigInt::from_bytes_le(Sign::Plus, &random_bytes[..]);
             let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
             let mut h: Vec<u8> = blh(&sk_raw_bytes);
