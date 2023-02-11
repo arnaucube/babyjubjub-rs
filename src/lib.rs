@@ -2,11 +2,12 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
+use core::panic;
 use std::iter::Sum;
 use num::Num;
 use std::fmt;
 // use serde::{Serialize, ser::SerializeSeq, Deserialize};
-use serde::{Serialize, ser::SerializeSeq, de::Visitor, de::MapAccess, Deserialize, Deserializer};
+use serde::{Serialize, ser::SerializeStruct, de::Visitor, de::MapAccess, Deserialize, Deserializer};
 use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
@@ -235,10 +236,10 @@ impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer {
-                let mut seq = serializer.serialize_seq(Some(2))?;
-                seq.serialize_element(&self.x.to_dec_string())?;
-                seq.serialize_element(&self.y.to_dec_string())?;
-                seq.end()
+                let mut state = serializer.serialize_struct("Point", 2)?;
+                state.serialize_field("x", &self.x.to_dec_string())?;
+                state.serialize_field("y", &self.y.to_dec_string())?;
+                state.end()
     }
 }
 
@@ -248,7 +249,6 @@ impl<'de> Deserialize<'de> for Point {
         where
             D: Deserializer<'de>
     {
-        //deserializer.deserialize_any(CustomVisitor)
         deserializer.deserialize_map(PointVisitor)
     }
 }
@@ -259,7 +259,7 @@ impl<'de> Visitor<'de> for PointVisitor {
     type Value = Point;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "a map with keys 'first' and 'second'")
+        write!(formatter, "a map with keys 'x' and 'y'")
     }
 
     fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -269,7 +269,7 @@ impl<'de> Visitor<'de> for PointVisitor {
         let mut x = None;
         let mut y = None;
 
-        while let Some(k) = map.next_key::<&str>()? {
+        while let Some(k) = map.next_key::<String>()? {
             if k == "x" {
                 let x_: String = map.next_value()?;
                 x = Fr::from_str(&x_);
