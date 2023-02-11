@@ -4,7 +4,9 @@
 use ff::*;
 use std::iter::Sum;
 use num::Num;
-use serde::{Serialize, ser::SerializeSeq};
+use std::fmt;
+// use serde::{Serialize, ser::SerializeSeq, Deserialize};
+use serde::{Serialize, ser::SerializeSeq, de::Visitor, de::MapAccess, Deserialize, Deserializer};
 use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
@@ -239,6 +241,56 @@ impl Serialize for Point {
                 seq.end()
     }
 }
+
+
+impl<'de> Deserialize<'de> for Point {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>
+    {
+        //deserializer.deserialize_any(CustomVisitor)
+        deserializer.deserialize_map(PointVisitor)
+    }
+}
+// For deserialization:
+struct PointVisitor;
+
+impl<'de> Visitor<'de> for PointVisitor {
+    type Value = Point;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a map with keys 'first' and 'second'")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>
+    {
+        let mut x = None;
+        let mut y = None;
+
+        while let Some(k) = map.next_key::<&str>()? {
+            if k == "x" {
+                let x_: String = map.next_value()?;
+                x = Fr::from_str(&x_);
+            }
+            else if k == "y" {
+                let y_: String = map.next_value()?;
+                y = Fr::from_str(&y_);
+            }
+            else {
+                return Err(serde::de::Error::custom(&format!("Invalid key: {}", k)));
+            }
+        }
+
+        if x.is_none() || y.is_none() {
+            return Err(serde::de::Error::custom("Missing first or second"));
+        }
+
+        Ok(Point { x: x.unwrap(), y: y.unwrap() })
+    }
+}
+
 
 impl Point {
     pub fn projective(&self) -> PointProjective {
