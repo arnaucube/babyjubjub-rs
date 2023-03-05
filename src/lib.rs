@@ -62,7 +62,13 @@ lazy_static! {
             )
                 .unwrap(),
     };
-    static ref ORDER: Fr = Fr::from_str(
+
+    pub static ref O: Point = Point {
+        x: Fr::zero(),
+        y: Fr::one()
+    };
+
+    pub static ref ORDER: Fr = Fr::from_str(
         "21888242871839275222246405745257275088614511777268538073601725287587578984328",
     )
         .unwrap();
@@ -356,18 +362,18 @@ impl Point {
         // Try finding a point with y value m*1024+0, m*1024+1, .... m*1024+5617 (5617 are last four digits of prime r)
         // There is an approximately 1/(2^1024) chance no point will be encodable,
         // since each y value has probability of about 1/2 of being on the curve
-    pub fn from_msg_vartime(msg: &BigInt) -> Point {
+    pub fn from_msg_vartime(msg: &BigInt) -> Option<Point> {
         let ACC_UNDER = 1024; // Last four digits of prime r. MAX_MSG * 1024 + ACC_UNDER = r
         assert!(msg <= &MAX_MSG);
         let mut acc: u16 = 0;
-        let mut on_curve: bool = false;
+        let mut in_subgroup: bool = false;
         // Start with message * 10000 as x coordinate
         let mut x: Fr = Fr::from_str(&msg.to_str_radix(10)).unwrap();
-        let mut y: Option<Fr> = None; 
+        let mut y: Fr; 
         x.mul_assign(&Fr::from_str(&ACC_UNDER.to_string()).unwrap());
         let one = Fr::one();
 
-        while (acc < ACC_UNDER) && !on_curve {
+        while (acc < ACC_UNDER) && !in_subgroup {
             // If x is on curve, calculate what y^2 should be, by (ax^2 - 1) / (dx^2 - 1)
             let mut x2 = x.clone();
             x2.mul_assign(&x);
@@ -384,16 +390,31 @@ impl Point {
 
             // If the point is on the curve, numerator/denominator will be y^2. Check whether numerator/denominator is a quadratic residue:
             numerator.mul_assign(&denominator.inverse().unwrap()); // Note: this is no longer a numerator since it was divided in this step
+            // match numerator.legendre() {
+            //     LegendreSymbol::QuadraticResidue() => {
+
+            //     }
+            //     _ => {
+            //         acc += 1;
+            //         x.add_assign(&one);
+            //     }
+            // }
+            let mut on_curve: bool = false;
             if let LegendreSymbol::QuadraticResidue = numerator.legendre() {
-                on_curve=true;
-                y = numerator.sqrt();
-            } else {
-                acc += 1;
-                x.add_assign(&one);
-            }
+                on_curve = true;
+                y = numerator.sqrt().unwrap();
+                let pt = Point {x:x, y:y};
+                if pt.in_subgroup() {
+                    in_subgroup = true;
+                    return Some(Point {x:x, y:y})
+                }
+            } 
+            acc += 1;
+            x.add_assign(&one);
         }
-        // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
-        Point {x:x, y:y.unwrap()}
+        return None
+        // // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
+        // Point {x:x, y:y.unwrap()}
 
     }
 
@@ -421,6 +442,14 @@ impl Point {
         rhs.add_assign(&Fr::one());
 
         lhs.eq(&rhs)
+    }
+
+    // This could be made more efficeint by using static ref to O
+    pub fn in_subgroup(&self) -> bool {
+        let should_be_zero = self.mul_scalar(&SUBORDER);
+        should_be_zero.equals({
+            Point { x: Fr::zero(), y: Fr::one() }
+        })
     }
 
     pub fn from_xy_strings(x: String, y: String) -> Point {
@@ -712,12 +741,13 @@ mod tests {
     #[test]
     fn test_from_msg_vartime() {
         let msg = 123456789.to_bigint().unwrap();
-        assert!(Point::from_msg_vartime(&msg).on_curve());
+        assert!(Point::from_msg_vartime(&msg).unwrap().on_curve());
 
         // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
         for n in 0..20 {
             let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
-            assert!(Point::from_msg_vartime(&m).on_curve());
+            assert!(Point::from_msg_vartime(&m).unwrap().on_curve());
+            assert!(Point::from_msg_vartime(&m).unwrap().in_subgroup());
         }
 
     }
@@ -727,7 +757,7 @@ mod tests {
         // Convert from msg to point back to msg and make sure it works:
         let msg = 123456789.to_bigint().unwrap();
         assert!(
-            Point::from_msg_vartime(&msg).to_msg()
+            Point::from_msg_vartime(&msg).unwrap().to_msg()
             .eq(
             &Fr::from_str(&msg.to_string()).unwrap()
             )
@@ -736,8 +766,8 @@ mod tests {
         // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
         for n in 0..20 {
             let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
-            assert!(
-                Point::from_msg_vartime(&m).to_msg()
+                                                                                                                                                                                       assert!(
+                Point::from_msg_vartime(&m).unwrap().to_msg()
                 .eq(
                 &Fr::from_str(&m.to_string()).unwrap()
                 )
