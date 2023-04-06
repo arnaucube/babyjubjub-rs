@@ -653,7 +653,11 @@ impl PrivateKey {
 
     pub fn decrypt_elgamal(&self, encrypted_point: ElGamalEncryption) -> Point {
         // Make sure inputs aren't bad (i imagine this check could be skipped for performance reasons, but it seems a sanity check here would be helpful)
-        assert!(encrypted_point.c1.on_curve() && encrypted_point.c2.on_curve());
+        assert!(encrypted_point.c1.on_curve(), "Error: C1 is not on the curve!");
+        assert!(encrypted_point.c1.in_subgroup(), "Error: C1 is not in the subgroup!");
+        assert!(encrypted_point.c2.on_curve(), "Error: C2 is not on the curve!");
+        assert!(encrypted_point.c2.in_subgroup(), "Error: C2 is not in the subgroup!");
+        
         let shared_secret = encrypted_point.c1.mul_scalar(&self.scalar_key());
         // Subtract the shared secret
         encrypted_point.c2.add(&shared_secret.neg())
