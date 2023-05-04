@@ -86,7 +86,7 @@ impl PointProjective {
 
     #[allow(clippy::many_single_char_names)]
     pub fn add(&self, q: &PointProjective) -> PointProjective {
-        // add-2008-bbjlp https://hyperelliptic.org/EFD/g1p/auto-twisted-projective.html#doubling-dbl-2008-bbjlp
+        // add-2008-bbjlp https://hyperelliptic.org/EFD/g1p/auto-twisted-projective.html#addition-add-2008-bbjlp
         let mut a = self.z;
         a.mul_assign(&q.z);
         let mut b = a;
