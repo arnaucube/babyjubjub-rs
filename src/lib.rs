@@ -552,7 +552,7 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
         Result::Ok(res) => Ok(Signature { r_b8: res, s: s.to_string() }),
     }
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ElGamalEncryption {
     pub c1: Point,
     pub c2: Point
