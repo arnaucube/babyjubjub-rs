@@ -2,19 +2,18 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-use core::panic;
 use std::iter::Sum;
 use num::Num;
 use std::fmt;
 // use serde::{Serialize, ser::SerializeSeq, Deserialize};
 use serde::{Serialize, ser::SerializeStruct, de::Visitor, de::MapAccess, Deserialize, Deserializer};
-use bytes::{BytesMut, BufMut};
+// use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
 extern crate rand_new;
 extern crate rand;
-#[macro_use]
+// #[macro_use]
 extern crate ff;
 
 // Create a new primefield for the subgroup defined by the base point, order Fl:
@@ -32,7 +31,7 @@ use arrayref::array_ref;
 // extern crate blake; // compatible version with Blake used at circomlib
 use blake2::{Blake2b512, Digest};
 // use hex_literal::hex;
-use std::{cmp::min, io::Bytes, str::FromStr};
+use std::{cmp::min, str::FromStr};
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::One;
@@ -52,6 +51,18 @@ lazy_static! {
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
         .unwrap();
+
+    pub static ref G: Point = Point {
+        x: Fr::from_str(
+                "995203441582195749578291179787384436505546430278305826713579947235728471134",
+            )
+            .unwrap(),
+            y: Fr::from_str(
+                "5472060717959818805561601436314318772137091100104008585924551046643952123905",
+            )
+            .unwrap(),
+    };
+
     pub static ref B8: Point = Point {
         x: Fr::from_str(
                "5299619240641551281634865583518297030282874472190772894086521144482721001553",
@@ -60,7 +71,7 @@ lazy_static! {
             y: Fr::from_str(
                 "16950150798460657717958625567821834550301663161624707787222815936182638968203",
             )
-                .unwrap(),
+            .unwrap(),
     };
 
     pub static ref O: Point = Point {
@@ -177,7 +188,7 @@ pub trait ToDecimalString {
 }
 impl ToDecimalString for Fr {
     fn to_dec_string(&self) -> String {
-        let mut s = self.to_string();
+        let s = self.to_string();
         let hex_str = s[5..s.len()-1].to_string();
         BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
     }
@@ -185,7 +196,7 @@ impl ToDecimalString for Fr {
 
 impl ToDecimalString for Fl {
     fn to_dec_string(&self) -> String {
-        let mut s = self.to_string();
+        let s = self.to_string();
         let hex_str = s[5..s.len()-1].to_string();
         BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
     }
@@ -363,17 +374,17 @@ impl Point {
         // There is an approximately 1/(2^1024) chance no point will be encodable,
         // since each y value has probability of about 1/2 of being on the curve
     pub fn from_msg_vartime(msg: &BigInt) -> Option<Point> {
+        #[allow(non_snake_case)]
         let ACC_UNDER = 1024; // Last four digits of prime r. MAX_MSG * 1024 + ACC_UNDER = r
         assert!(msg <= &MAX_MSG);
         let mut acc: u16 = 0;
-        let mut in_subgroup: bool = false;
         // Start with message * 10000 as x coordinate
         let mut x: Fr = Fr::from_str(&msg.to_str_radix(10)).unwrap();
         let mut y: Fr; 
         x.mul_assign(&Fr::from_str(&ACC_UNDER.to_string()).unwrap());
         let one = Fr::one();
 
-        while (acc < ACC_UNDER) && !in_subgroup {
+        while acc < ACC_UNDER {
             // If x is on curve, calculate what y^2 should be, by (ax^2 - 1) / (dx^2 - 1)
             let mut x2 = x.clone();
             x2.mul_assign(&x);
@@ -390,23 +401,12 @@ impl Point {
 
             // If the point is on the curve, numerator/denominator will be y^2. Check whether numerator/denominator is a quadratic residue:
             numerator.mul_assign(&denominator.inverse().unwrap()); // Note: this is no longer a numerator since it was divided in this step
-            // match numerator.legendre() {
-            //     LegendreSymbol::QuadraticResidue() => {
-
-            //     }
-            //     _ => {
-            //         acc += 1;
-            //         x.add_assign(&one);
-            //     }
-            // }
-            let mut on_curve: bool = false;
+            
             if let LegendreSymbol::QuadraticResidue = numerator.legendre() {
-                on_curve = true;
                 y = numerator.sqrt().unwrap();
-                let pt = Point {x:x, y:y};
+                let pt = Point {x, y};
                 if pt.in_subgroup() {
-                    in_subgroup = true;
-                    return Some(Point {x:x, y:y})
+                    return Some(Point {x, y})
                 }
             } 
             acc += 1;
@@ -736,11 +736,30 @@ mod tests {
 
     #[test]
     fn test_on_curve() {
-        let some_point = Point { x: Fr::from_str("1234").unwrap(), y: Fr::from_str("5678").unwrap() };
         assert_eq!(B8.on_curve(), true);
         assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).on_curve(), true);
+
+        let some_point = Point { x: Fr::from_str("1234").unwrap(), y: Fr::from_str("5678").unwrap() };
         assert_eq!(some_point.on_curve(), false);
-    
+    }
+
+    #[test]
+    fn test_in_subgroup() {
+        assert_eq!(B8.in_subgroup(), true);
+        assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).in_subgroup(), true);
+
+        assert_eq!(G.in_subgroup(), false);
+        assert_eq!(G.mul_scalar(&5.to_bigint().unwrap()).in_subgroup(), false);
+        assert_eq!(G.mul_scalar(&7.to_bigint().unwrap()).in_subgroup(), false);
+        
+        assert_eq!(G.mul_scalar(&8.to_bigint().unwrap()).in_subgroup(), true);
+        assert_eq!(G.mul_scalar(&16.to_bigint().unwrap()).in_subgroup(), true);
+        assert_eq!(G.mul_scalar(&8000.to_bigint().unwrap()).in_subgroup(), true);
+
+        
+
+
+        
     }
     #[test]
     fn test_from_msg_vartime() {
