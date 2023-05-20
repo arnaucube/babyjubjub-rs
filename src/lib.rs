@@ -226,27 +226,27 @@ impl FrBigIntConversion<Fl> for Fl {
     }
 }
 
-pub struct FrWrapper {
-    pub fr: Fr
-}
-impl FrWrapper {
-    pub fn from_fr(fr: Fr) -> FrWrapper {
-        FrWrapper { fr: fr }
-    }
-}
+// pub struct FrWrapper {
+//     pub fr: Fr
+// }
+// impl FrWrapper {
+//     pub fn from_fr(fr: Fr) -> FrWrapper {
+//         FrWrapper { fr: fr }
+//     }
+// }
 
-impl Sum for FrWrapper {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(
-            |frw1,frw2| {
-                let mut tmp = frw1.fr.clone();
-                tmp.add_assign(&frw2.fr);
-                FrWrapper { fr: tmp }
-            }
+// impl Sum for FrWrapper {
+//     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+//         iter.reduce(
+//             |frw1,frw2| {
+//                 let mut tmp = frw1.fr.clone();
+//                 tmp.add_assign(&frw2.fr);
+//                 FrWrapper { fr: tmp }
+//             }
 
-        ).unwrap()
-    }
-}
+//         ).unwrap()
+//     }
+// }
 
 
 impl Serialize for Point {
