@@ -2,7 +2,8 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-use std::iter::Sum;
+use rand::ThreadRng;
+use std::{iter::Sum, ops::{Neg, AddAssign}};
 use num::Num;
 use std::fmt;
 // use serde::{Serialize, ser::SerializeSeq, Deserialize};
@@ -81,16 +82,19 @@ lazy_static! {
 
     pub static ref ORDER: Fr = Fr::from_str(
         "21888242871839275222246405745257275088614511777268538073601725287587578984328",
-    )
-        .unwrap();
+    ).unwrap();
+
+    pub static ref ORDER_BI: BigInt = BigInt::parse_bytes(
+        b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
+        10,
+    ).unwrap();
 
     // SUBORDER = ORDER >> 3
     pub static ref SUBORDER: BigInt = &BigInt::parse_bytes(
         b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
         10,
-    )
-        .unwrap()
-        >> 3;
+    ).unwrap()
+    >> 3;
     pub static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
     
     // MAX_MSG is maximum message length that can be encoded into a point. This will be Q / KOBLITZ_NUMBER
@@ -248,7 +252,6 @@ impl FrBigIntConversion<Fl> for Fl {
 //     }
 // }
 
-
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -308,7 +311,7 @@ impl<'de> Visitor<'de> for PointVisitor {
     }
 }
 
-
+// For addition shorthand
 impl Point {
     pub fn projective(&self) -> PointProjective {
         PointProjective {
@@ -727,6 +730,137 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
     l.equals(r)
 }
 
+
+pub struct DLEQProof {
+    pub A: Point,
+    pub B: Point,
+    pub xA: Point,
+    pub xB: Point,
+    pub challenge: BigInt,
+    pub response: BigInt,
+}
+impl DLEQProof {
+    // Prove that ∃ x s.t. x*A = variable xA and x*B = variable xB
+    pub fn new(x: BigInt, point_A: Point, point_B: Point) -> DLEQProof {
+        let xA = point_A.mul_scalar(&x);
+        let xB = point_B.mul_scalar(&x);
+        let mut rng = rand_new::thread_rng();
+        let k = rng.gen_biguint(512).to_bigint().unwrap() % Q.clone();
+        let kA = point_A.mul_scalar(&k);
+        let kB = point_B.mul_scalar(&k);
+
+        let challenge = DLEQProof::get_challenge(&point_A, &point_B, &xA, &xB, &kA, &kB);
+
+        let k_field = Fr::from_str(&k.to_string()).unwrap();
+        let x_field = Fr::from_str(&k.to_string()).unwrap();
+        let challenge_field = Fr::from_str(&challenge.to_string()).unwrap();
+        
+        let mut response_field = challenge_field.clone();
+        response_field.negate();
+        response_field.mul_assign(&x_field);
+        response_field.add_assign(&k_field);
+        // let response = Fr::from k - &challenge * &x) % Q.clone();
+        // let response = BigInt::from_str("-10").unwrap();//(ORDER_BI.clone() + BigInt::from_str("100").unwrap()).neg();
+        let response = response_field.to_bigint();
+        println!("response: {:?}", response);
+
+        // -7:
+        // let neg7 = "-7".parse::<BigInt>().unwrap();
+        // let neg7_ = Q.clone() + &neg7;
+        // let product = B8.mul_scalar(&neg7);
+        // let product_ = B8.mul_scalar(&neg7_);
+        
+        // println!("\nproduct: {:?} ====================== {:?} \n", product.x, product_.x);
+
+        // let cxA = xA.mul_scalar(&challenge);
+        // let cxA_ = point_A.mul_scalar(&challenge).mul_scalar(&x);
+        // println!("cxA: {:?} ====================== {:?} ", cxA, cxA_);
+
+        let xchallenge = &x * &challenge;
+        let response_plus_xchallenge = &response + &xchallenge;
+        
+        let xchallengeA = point_A.mul_scalar(&xchallenge);
+        let responseA = point_A.mul_scalar(&response);
+
+        let sum_method1 = responseA.add(&xchallengeA);
+        let sum_method2 = point_A.mul_scalar(&(response_plus_xchallenge));
+
+        // DELETE THIS:
+        // let kA1 = point_A.mul_scalar(&(&response + &challenge * &x));
+        // let kA2 = point_A.mul_scalar(&response).add(
+        //                     &point_A.mul_scalar(&(&challenge * &x))
+        // );
+        // let _a = Q.clone() - BigInt::from_str("10").unwrap();
+        // let _b = BigInt::from_str("2000").unwrap();
+        // let _A = B8.mul_scalar(&_a);
+        // let _B = B8.mul_scalar(&_b);
+        // let _prod = _A.add(&_B);
+        // let __prod = B8.mul_scalar(&(_a+_b));
+        // println!("\n\n\n\n\n\nprods: {:?} =================== {:?}\n\n\n\n", _prod.x, __prod.x);
+        // println!("one {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[1])).x);
+        // println!("two {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[2])).x);
+        // println!("one {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[1])).x);
+
+        // let kB_ = 
+        //     point_B.mul_scalar(&response).add(
+        //     &xA.mul_scalar(&challenge)
+        // );
+        // println!("kA==kA_? {:?}. kB==kB_? {:?}", kA_.equals(kA), kB_.equals(kB));
+        // println!("1x: {:?}\n2x: {:?}", sum_method1.x, sum_method2.x);
+        println!("kA: {:?}. kB {:?}", kA, kB);
+
+        DLEQProof {
+            A: point_A,
+            B: point_B,
+            xA,
+            xB,
+            challenge,
+            response
+        }
+    }
+
+    pub fn verify(&self) -> bool {
+        // This should equal kA
+        let kA_ = 
+            self.A.mul_scalar(&self.response).add(
+                &self.xA.mul_scalar(&self.challenge)
+            );
+        // This should equal kB
+        let kB_ = 
+            self.B.mul_scalar(&self.response).add(
+                &self.xB.mul_scalar(&self.challenge)
+        );
+        println!("kA_: {:?}. kB_ {:?}", kA_, kB_);
+        // Check that kA_ == kA and kB_ == kB by recomputing the challenge and checking that it matches 
+        let challenge = DLEQProof::get_challenge(&self.A, &self.B, &self.xA, &self.xB, &kA_, &kB_);
+        // println!("got challenge: {:?} which should equal {:?}", challenge, self.challenge);
+        return challenge == self.challenge;
+    }
+    // Generates randomness for DLEQ Fiat-Shamir transform
+    fn get_challenge(point_A: &Point, point_B: &Point, xA: &Point, xB: &Point, kA: &Point, kB: &Point) -> BigInt {
+        // This could probably be faster if we neglect either the x or y coordinate, but rn doing both to be safe until i study this more
+        let inputs: Vec<Fr> = vec![
+                point_A.x,point_A.y, 
+                xA.x,xA.y,
+                point_B.x,point_B.y,
+                xB.x,xB.y,
+                kA.x,kA.y,
+                kB.x,kB.y
+        ];
+        let input: Vec<u8> = inputs.iter().map(|f| {
+            let as_hex = to_hex(f);
+            hex::decode(as_hex).unwrap()
+        })
+        .flatten()
+        .collect();
+        
+        let challenge_hash = blh(&input);
+        // println!("{:?} is hash of input {:?}", challenge_hash, input);
+        BigInt::from_bytes_be(Sign::Plus, &challenge_hash.as_slice())
+        % ORDER_BI.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,6 +868,19 @@ mod tests {
     use rand_new::Rng;
     use num_traits::FromPrimitive;
 
+    #[test]
+    fn test_dleq() {
+        let a = BigInt::parse_bytes(b"123456789", 10).unwrap();
+        let point_A = B8.mul_scalar(&a);
+        let b = BigInt::parse_bytes(b"55555555555555512345678944444444444", 10).unwrap();
+        let point_B = B8.mul_scalar(&b);
+
+        let mut rng = rand_new::thread_rng();
+        let x = rng.gen_biguint(512).to_bigint().unwrap() % ORDER_BI.clone();
+        let proof = DLEQProof::new(x, point_A, point_B);
+        println!("proof: {:?}", proof.verify());
+        assert!(proof.verify());
+    }
     #[test]
     fn test_on_curve() {
         assert_eq!(B8.on_curve(), true);
