@@ -3,7 +3,7 @@
 
 use ff::*;
 use rand::ThreadRng;
-use std::{iter::Sum, ops::{Neg, AddAssign}};
+use std::{iter::Sum, ops::{Neg, AddAssign}, fmt::Error};
 use num::Num;
 use std::fmt;
 // use serde::{Serialize, ser::SerializeSeq, Deserialize};
@@ -213,6 +213,7 @@ pub trait FrBigIntConversion<T> {
 impl FrBigIntConversion<Fr> for Fr {
     // Note: this could probably be more efficient by converting bigint to raw repr to Fr
     fn from_bigint(bi: &BigInt) -> Fr {
+        println!("bi: {}", bi.to_string());
         Fr::from_str(&bi.to_string()).unwrap()
     }
     fn to_bigint(&self) -> BigInt {
@@ -736,108 +737,65 @@ pub struct DLEQProof {
     pub B: Point,
     pub xA: Point,
     pub xB: Point,
-    pub challenge: BigInt,
-    pub response: BigInt,
+    pub challenge: Fl,
+    pub response: Fl,
 }
 impl DLEQProof {
-    // Prove that ∃ x s.t. x*A = variable xA and x*B = variable xB
-    pub fn new(x: BigInt, point_A: Point, point_B: Point) -> DLEQProof {
-        let xA = point_A.mul_scalar(&x);
-        let xB = point_B.mul_scalar(&x);
-        let mut rng = rand_new::thread_rng();
-        let k = rng.gen_biguint(512).to_bigint().unwrap() % Q.clone();
-        let kA = point_A.mul_scalar(&k);
-        let kB = point_B.mul_scalar(&k);
+     // Prove x*A = variable xA and x*B = variable xB
+    pub fn new(x: Fl, point_A: Point, point_B: Point) -> Result<DLEQProof, Error> {
+        let x_bigint = x.to_bigint();
 
+        // let modulus_overflowed = ORDER.clone(); // TODO: shouldn't this be the subgroup order? This is not order of Babyjubjub curve nor the subgroup; it's the order Babyjubjub is defined over
+        let modulus = SUBORDER.clone();
+        // TODO: better error handling (not assert), make it more efficient too:
+        assert!(x_bigint < modulus);
+
+        // println!("modulus overflow? isn't it bigger than Fr's order: {:?}", modulus_overflowed);
+        let k_bigint = rand_new::thread_rng().gen_biguint(512).to_bigint().unwrap() % &modulus;
+        let k = Fl::from_bigint(&k_bigint);
+
+        let xA = point_A.mul_scalar(&x_bigint);
+        let xB = point_B.mul_scalar(&x_bigint);
+
+        let kA = point_A.mul_scalar(&k_bigint);
+        let kB = point_B.mul_scalar(&k_bigint);
+        
         let challenge = DLEQProof::get_challenge(&point_A, &point_B, &xA, &xB, &kA, &kB);
+        let mut challenge_x = challenge.clone(); challenge_x.mul_assign(&x);
+        // response = k - challenge * x;
+        let mut response = k.clone(); response.sub_assign(&challenge_x);
 
-        let k_field = Fr::from_str(&k.to_string()).unwrap();
-        let x_field = Fr::from_str(&k.to_string()).unwrap();
-        let challenge_field = Fr::from_str(&challenge.to_string()).unwrap();
-        
-        let mut response_field = challenge_field.clone();
-        response_field.negate();
-        response_field.mul_assign(&x_field);
-        response_field.add_assign(&k_field);
-        // let response = Fr::from k - &challenge * &x) % Q.clone();
-        // let response = BigInt::from_str("-10").unwrap();//(ORDER_BI.clone() + BigInt::from_str("100").unwrap()).neg();
-        let response = response_field.to_bigint();
-        println!("response: {:?}", response);
-
-        // -7:
-        // let neg7 = "-7".parse::<BigInt>().unwrap();
-        // let neg7_ = Q.clone() + &neg7;
-        // let product = B8.mul_scalar(&neg7);
-        // let product_ = B8.mul_scalar(&neg7_);
-        
-        // println!("\nproduct: {:?} ====================== {:?} \n", product.x, product_.x);
-
-        // let cxA = xA.mul_scalar(&challenge);
-        // let cxA_ = point_A.mul_scalar(&challenge).mul_scalar(&x);
-        // println!("cxA: {:?} ====================== {:?} ", cxA, cxA_);
-
-        let xchallenge = &x * &challenge;
-        let response_plus_xchallenge = &response + &xchallenge;
-        
-        let xchallengeA = point_A.mul_scalar(&xchallenge);
-        let responseA = point_A.mul_scalar(&response);
-
-        let sum_method1 = responseA.add(&xchallengeA);
-        let sum_method2 = point_A.mul_scalar(&(response_plus_xchallenge));
-
-        // DELETE THIS:
-        // let kA1 = point_A.mul_scalar(&(&response + &challenge * &x));
-        // let kA2 = point_A.mul_scalar(&response).add(
-        //                     &point_A.mul_scalar(&(&challenge * &x))
-        // );
-        // let _a = Q.clone() - BigInt::from_str("10").unwrap();
-        // let _b = BigInt::from_str("2000").unwrap();
-        // let _A = B8.mul_scalar(&_a);
-        // let _B = B8.mul_scalar(&_b);
-        // let _prod = _A.add(&_B);
-        // let __prod = B8.mul_scalar(&(_a+_b));
-        // println!("\n\n\n\n\n\nprods: {:?} =================== {:?}\n\n\n\n", _prod.x, __prod.x);
-        // println!("one {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[1])).x);
-        // println!("two {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[2])).x);
-        // println!("one {:?}", point_A.mul_scalar(&BigInt::from_bytes_be(Sign::Plus,&[1])).x);
-
-        // let kB_ = 
-        //     point_B.mul_scalar(&response).add(
-        //     &xA.mul_scalar(&challenge)
-        // );
-        // println!("kA==kA_? {:?}. kB==kB_? {:?}", kA_.equals(kA), kB_.equals(kB));
-        // println!("1x: {:?}\n2x: {:?}", sum_method1.x, sum_method2.x);
-        println!("kA: {:?}. kB {:?}", kA, kB);
-
-        DLEQProof {
+        Ok(DLEQProof {
             A: point_A,
             B: point_B,
-            xA,
-            xB,
-            challenge,
-            response
-        }
+            xA: xA,
+            xB: xB,
+            challenge: challenge,
+            response: response,
+        })
     }
 
     pub fn verify(&self) -> bool {
         // This should equal kA
         let kA_ = 
-            self.A.mul_scalar(&self.response).add(
-                &self.xA.mul_scalar(&self.challenge)
+            self.A.mul_scalar(&self.response.to_bigint()).add(
+                &self.xA.mul_scalar(&self.challenge.to_bigint())
             );
+        
         // This should equal kB
         let kB_ = 
-            self.B.mul_scalar(&self.response).add(
-                &self.xB.mul_scalar(&self.challenge)
+            self.B.mul_scalar(&self.response.to_bigint()).add(
+                &self.xB.mul_scalar(&self.challenge.to_bigint())
         );
-        println!("kA_: {:?}. kB_ {:?}", kA_, kB_);
-        // Check that kA_ == kA and kB_ == kB by recomputing the challenge and checking that it matches 
+
         let challenge = DLEQProof::get_challenge(&self.A, &self.B, &self.xA, &self.xB, &kA_, &kB_);
-        // println!("got challenge: {:?} which should equal {:?}", challenge, self.challenge);
+        println!("got challenge: {:?} which should equal {:?}", challenge, self.challenge);
+
         return challenge == self.challenge;
+
     }
     // Generates randomness for DLEQ Fiat-Shamir transform
-    fn get_challenge(point_A: &Point, point_B: &Point, xA: &Point, xB: &Point, kA: &Point, kB: &Point) -> BigInt {
+    fn get_challenge(point_A: &Point, point_B: &Point, xA: &Point, xB: &Point, kA: &Point, kB: &Point) -> Fl {
         // This could probably be faster if we neglect either the x or y coordinate, but rn doing both to be safe until i study this more
         let inputs: Vec<Fr> = vec![
                 point_A.x,point_A.y, 
@@ -855,9 +813,7 @@ impl DLEQProof {
         .collect();
         
         let challenge_hash = blh(&input);
-        // println!("{:?} is hash of input {:?}", challenge_hash, input);
-        BigInt::from_bytes_be(Sign::Plus, &challenge_hash.as_slice())
-        % ORDER_BI.clone()
+        Fl::from_bigint(&BigInt::from_bytes_be(Sign::Plus, &challenge_hash.as_slice()))
     }
 }
 
@@ -876,8 +832,8 @@ mod tests {
         let point_B = B8.mul_scalar(&b);
 
         let mut rng = rand_new::thread_rng();
-        let x = rng.gen_biguint(512).to_bigint().unwrap() % ORDER_BI.clone();
-        let proof = DLEQProof::new(x, point_A, point_B);
+        let x = Fl::from_bigint(&rng.gen_biguint(512).to_bigint().unwrap());
+        let proof = DLEQProof::new(x, point_A, point_B).unwrap();
         println!("proof: {:?}", proof.verify());
         assert!(proof.verify());
     }
