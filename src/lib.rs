@@ -2,8 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-use rand::ThreadRng;
-use std::{iter::Sum, ops::{Neg, AddAssign}, fmt::Error};
+use std::fmt::Error;
 use num::Num;
 use std::fmt;
 use serde::{Serialize, ser::SerializeStruct, de::Visitor, de::MapAccess, Deserialize, Deserializer};
@@ -93,15 +92,12 @@ lazy_static! {
     >> 3;
     pub static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
     
-    // MAX_MSG is maximum message length that can be encoded into a point. This will be Q / KOBLITZ_NUMBER
+    // MAX_MSG is maximum message length that can be encoded into a point
     pub static ref MAX_MSG: BigInt = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
         .unwrap()
         >> 10;
-    // An arbitrary number for Koblitz method of encoding string to point. 1024 is convenient compared to original 1000 to do bitshifts instead of multiplications/divisions
-//    pub static ref KOBLITZ_NUMBER: Fr = Fr::from_str("1024").unwrap();
-//    pub static ref KOBLITZ_NUMBER_INV: Fr = Fr::from_str("1024").unwrap().inverse().unwrap();
 
 }
 
@@ -227,28 +223,6 @@ impl FrBigIntConversion<Fl> for Fl {
     }
 }
 
-// pub struct FrWrapper {
-//     pub fr: Fr
-// }
-// impl FrWrapper {
-//     pub fn from_fr(fr: Fr) -> FrWrapper {
-//         FrWrapper { fr: fr }
-//     }
-// }
-
-// impl Sum for FrWrapper {
-//     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-//         iter.reduce(
-//             |frw1,frw2| {
-//                 let mut tmp = frw1.fr.clone();
-//                 tmp.add_assign(&frw2.fr);
-//                 FrWrapper { fr: tmp }
-//             }
-
-//         ).unwrap()
-//     }
-// }
-
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -368,11 +342,11 @@ impl Point {
         false
     }
 
-    // Koblitz decoding method, adapted for this curve: 
-        // message m must be < r/(2^10) //using 2^10=1024 instead of Koblitz' parameter of 1000, so arithmetic can happen easily mod 2. This shouldn't have any (negative) impact: https://crypto.stackexchange.com/questions/103132/encoding-a-message-as-points-on-elliptic-curve
-        // Try finding a point with y value m*1024+0, m*1024+1, .... m*1024+5617 (5617 are last four digits of prime r)
-        // There is an approximately 1/(2^1024) chance no point will be encodable,
-        // since each y value has probability of about 1/2 of being on the curve
+    /// Koblitz decoding method, adapted for this curve: 
+        /// message m must be < r/(2^10) //using 2^10=1024 instead of Koblitz' parameter of 1000, so arithmetic can happen easily mod 2. This shouldn't have any (negative) impact: https://crypto.stackexchange.com/questions/103132/encoding-a-message-as-points-on-elliptic-curve
+        /// Try finding a point with y value m*1024+0, m*1024+1, .... m*1024+5617 (5617 are last four digits of prime r)
+        /// There is an approximately 1/(2^1024) chance no point will be encodable,
+        /// since each y value has probability of about 1/2 of being on the curve
     pub fn from_msg_vartime(msg: &BigInt) -> Option<Point> {
         #[allow(non_snake_case)]
         let ACC_UNDER = 1024; // Last four digits of prime r. MAX_MSG * 1024 + ACC_UNDER = r
@@ -413,19 +387,16 @@ impl Point {
             x.add_assign(&one);
         }
         return None
-        // // Unwrap y since we can't be 100% sure at compile-time it will have been found; it may still be a None value!
-        // Point {x:x, y:y.unwrap()}
-
     }
 
-    // Converts a point to a message by dividing by 1024 (a.k.a. right-shifting by 10)
+    /// Converts a point to a message by dividing its x by 1024 (a.k.a. right-shifting by 10)
     pub fn to_msg(&self) -> Fr {
         let mut msg = self.x.clone().into_repr();
         msg.shr(10);
         Fr::from_repr(msg).unwrap()
 
     }
-
+    /// Checks that a point is on the BabyJubJub curve. Does not check the point is in the correct subgroup.
     pub fn on_curve(&self) -> bool {
         let mut x2 = self.x.clone();
         let mut y2 = self.y.clone();
@@ -444,7 +415,7 @@ impl Point {
         lhs.eq(&rhs)
     }
 
-    // This could be made more efficeint by using static ref to O
+    /// Checks that a point's order is equal to the subgroup order. Does not check the point is on the curve.
     pub fn in_subgroup(&self) -> bool {
         let should_be_zero = self.mul_scalar(&SUBORDER);
         should_be_zero.equals({
@@ -500,9 +471,6 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
 
 #[cfg(not(feature = "aarch64"))]
 fn blh(b: &[u8]) -> Vec<u8> {
-    // println!("hashing {:?} {:?}", b.len(), b);
-    // let debugggggggggme = blake_hash::Blake512::digest(b);
-    // println!("debugging {:?}", debugggggggggme);
     let hash = blake_hash::Blake512::digest(b);
     hash.to_vec()
 }
@@ -514,24 +482,17 @@ fn blh(b: &[u8]) -> Vec<u8> {
     hash.to_vec()
 }
 
-// pub fn blh(b: &[u8]) -> Vec<u8> {
-//     let mut h = Blake2b512::new();
-//     h.update(b);
-//     let digest = h.finalize();
-//     return digest[..].to_vec();
-// }
-
 #[derive(Debug, Clone, Serialize)]
 pub struct Signature {
     pub r_b8: Point,
-    pub s: String,
+    pub s: BigInt,
 }
 
 impl Signature {
     pub fn compress(&self) -> [u8; 64] {
         let mut b: Vec<u8> = Vec::new();
         b.append(&mut self.r_b8.compress().to_vec());
-        let (_, s_bytes) = self.s.parse::<BigInt>().unwrap().to_bytes_le();
+        let (_, s_bytes) = self.s.to_bytes_le();
         let mut s_32bytes: [u8; 32] = [0; 32];
         let len = min(s_bytes.len(), s_32bytes.len());
         s_32bytes[..len].copy_from_slice(&s_bytes[..len]);
@@ -548,7 +509,7 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
     let r_b8 = decompress_point(r_b8_bytes);
     match r_b8 {
         Result::Err(err) => Err(err),
-        Result::Ok(res) => Ok(Signature { r_b8: res, s: s.to_string() }),
+        Result::Ok(res) => Ok(Signature { r_b8: res, s }),
     }
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -558,7 +519,7 @@ pub struct ElGamalEncryption {
 }
 
 pub struct PrivateKey {
-    key: [u8; 32],
+    pub key: [u8; 32],
 }
 
 impl PrivateKey {
@@ -622,13 +583,13 @@ impl PrivateKey {
         let hm_input = vec![r_b8.x, r_b8.y, a.x, a.y, msg_fr];
         let hm = POSEIDON.hash(hm_input)?;
 
-        let mut s: BigInt = &self.scalar_key() << 3;
+        let mut s = &self.scalar_key() << 3;
         let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
         s = hm_b * s;
         s = r + s;
         s %= &SUBORDER.clone();
 
-        Ok(Signature { r_b8, s: s.to_string() })
+        Ok(Signature { r_b8, s: s })
     }
 
     #[allow(clippy::many_single_char_names)]
@@ -718,7 +679,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
         Result::Err(_) => return false,
         Result::Ok(hm) => hm,
     };
-    let l = B8.mul_scalar(&sig.s.parse::<BigInt>().unwrap());
+    let l = B8.mul_scalar(&sig.s);
     let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
     let r = sig
         .r_b8
@@ -740,7 +701,6 @@ impl DLEQProof {
     pub fn new(x: Fl, point_A: Point, point_B: Point) -> Result<DLEQProof, Error> {
         let x_bigint = x.to_bigint();
 
-        // let modulus_overflowed = ORDER.clone(); // TODO: shouldn't this be the subgroup order? This is not order of Babyjubjub curve nor the subgroup; it's the order Babyjubjub is defined over
         let modulus = SUBORDER.clone();
         // TODO: better error handling (not assert), make it more efficient too:
         assert!(x_bigint < modulus);
@@ -1190,55 +1150,54 @@ mod tests {
         assert_eq!(true, verification);
     }
 
-    // Removed this because broke circom siganture compatability due to different blake hash function:
-    // #[test]
-    // fn test_circomlib_testvector() {
-    //     let sk_raw_bytes =
-    //         hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
-    //             .unwrap();
+    #[test]
+    fn test_circomlib_testvector() {
+        let sk_raw_bytes =
+            hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
+                .unwrap();
 
-    //     // test blake compatible with circomlib implementation
-    //     let h: Vec<u8> = blh(&sk_raw_bytes);
-    //     assert_eq!(hex::encode(h), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
+        // test blake compatible with circomlib implementation
+        let h: Vec<u8> = blh(&sk_raw_bytes);
+        assert_eq!(hex::encode(h), "c992db23d6290c70ffcc02f7abeb00b9d00fa8b43e55d7949c28ba6be7545d3253882a61bd004a236ef1cdba01b27ba0aedfb08eefdbfb7c19657c880b43ddf1");
 
-    //     // test private key
-    //     let sk = PrivateKey::import(
-    //         hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
-    //             .unwrap(),
-    //     )
-    //     .unwrap();
-    //     assert_eq!(
-    //         sk.scalar_key().to_string(),
-    //         "6466070937662820620902051049739362987537906109895538826186780010858059362905"
-    //     );
+        // test private key
+        let sk = PrivateKey::import(
+            hex::decode("0001020304050607080900010203040506070809000102030405060708090001")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            sk.scalar_key().to_string(),
+            "6466070937662820620902051049739362987537906109895538826186780010858059362905"
+        );
 
-    //     // test public key
-    //     let pk = sk.public();
-    //     assert_eq!(
-    //         pk.x.to_string(),
-    //         "Fr(0x1d5ac1f31407018b7d413a4f52c8f74463b30e6ac2238220ad8b254de4eaa3a2)"
-    //     );
-    //     assert_eq!(
-    //         pk.y.to_string(),
-    //         "Fr(0x1e1de8a908826c3f9ac2e0ceee929ecd0caf3b99b3ef24523aaab796a6f733c4)"
-    //     );
+        // test public key
+        let pk = sk.public();
+        assert_eq!(
+            pk.x.to_string(),
+            "Fr(0x1d5ac1f31407018b7d413a4f52c8f74463b30e6ac2238220ad8b254de4eaa3a2)"
+        );
+        assert_eq!(
+            pk.y.to_string(),
+            "Fr(0x1e1de8a908826c3f9ac2e0ceee929ecd0caf3b99b3ef24523aaab796a6f733c4)"
+        );
 
-    //     // test signature & verification
-    //     let msg = BigInt::from_bytes_le(Sign::Plus, &hex::decode("00010203040506070809").unwrap());
-    //     let sig = sk.sign(msg.clone()).unwrap();
-    //     assert_eq!(
-    //         sig.r_b8.x.to_string(),
-    //         "Fr(0x192b4e51adf302c8139d356d0e08e2404b5ace440ef41fc78f5c4f2428df0765)"
-    //     );
-    //     assert_eq!(
-    //         sig.r_b8.y.to_string(),
-    //         "Fr(0x2202bebcf57b820863e0acc88970b6ca7d987a0d513c2ddeb42e3f5d31b4eddf)"
-    //     );
-    //     assert_eq!(
-    //         sig.s.to_string(),
-    //         "1672775540645840396591609181675628451599263765380031905495115170613215233181"
-    //     );
-    //     let v = verify(pk, sig, msg);
-    //     assert_eq!(v, true);
-    // }
+        // test signature & verification
+        let msg = BigInt::from_bytes_le(Sign::Plus, &hex::decode("00010203040506070809").unwrap());
+        let sig = sk.sign(msg.clone()).unwrap();
+        assert_eq!(
+            sig.r_b8.x.to_string(),
+            "Fr(0x192b4e51adf302c8139d356d0e08e2404b5ace440ef41fc78f5c4f2428df0765)"
+        );
+        assert_eq!(
+            sig.r_b8.y.to_string(),
+            "Fr(0x2202bebcf57b820863e0acc88970b6ca7d987a0d513c2ddeb42e3f5d31b4eddf)"
+        );
+        assert_eq!(
+            sig.s.to_string(),
+            "1672775540645840396591609181675628451599263765380031905495115170613215233181"
+        );
+        let v = verify(pk, sig, msg);
+        assert_eq!(v, true);
+    }
 }
