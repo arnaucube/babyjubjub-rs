@@ -6,15 +6,12 @@ use rand::ThreadRng;
 use std::{iter::Sum, ops::{Neg, AddAssign}, fmt::Error};
 use num::Num;
 use std::fmt;
-// use serde::{Serialize, ser::SerializeSeq, Deserialize};
 use serde::{Serialize, ser::SerializeStruct, de::Visitor, de::MapAccess, Deserialize, Deserializer};
-// use bytes::{BytesMut, BufMut};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
 extern crate rand_new;
 extern crate rand;
-// #[macro_use]
 extern crate ff;
 
 // Create a new primefield for the subgroup defined by the base point, order Fl:
@@ -25,13 +22,12 @@ pub struct Fl(FpRepr);
 
 use arrayref::array_ref;
 
-// #[cfg(not(feature = "aarch64"))]
-// use blake_hash::Digest; // compatible version with Blake used at circomlib
+#[cfg(not(feature = "aarch64"))]
+use blake_hash::Digest; // compatible version with Blake used at circomlib
 
-// #[cfg(feature = "aarch64")]
-// extern crate blake; // compatible version with Blake used at circomlib
-use blake2::{Blake2b512, Digest};
-// use hex_literal::hex;
+#[cfg(feature = "aarch64")]
+extern crate blake; // compatible version with Blake used at circomlib
+
 use std::{cmp::min, str::FromStr};
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
@@ -502,29 +498,28 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     Ok(Point { x: x_fr, y: y_fr })
 }
 
-// #[cfg(not(feature = "aarch64"))]
-// fn blh(b: &[u8]) -> Vec<u8> {
-//     println!("hashing {:?} {:?}", b.len(), b);
-//     let debugggggggggme = blake_hash::Blake512::digest(b);
-//     println!("debugging {:?}", debugggggggggme);
-
-//     let hash = blake_hash::Blake512::digest(b);
-//     hash.to_vec()
-// }
-
-// #[cfg(feature = "aarch64")]
-// fn blh(b: &[u8]) -> Vec<u8> {
-//     let mut hash = [0; 64];
-//     blake::hash(512, b, &mut hash).unwrap();
-//     hash.to_vec()
-// }
-
-pub fn blh(b: &[u8]) -> Vec<u8> {
-    let mut h = Blake2b512::new();
-    h.update(b);
-    let digest = h.finalize();
-    return digest[..].to_vec();
+#[cfg(not(feature = "aarch64"))]
+fn blh(b: &[u8]) -> Vec<u8> {
+    // println!("hashing {:?} {:?}", b.len(), b);
+    // let debugggggggggme = blake_hash::Blake512::digest(b);
+    // println!("debugging {:?}", debugggggggggme);
+    let hash = blake_hash::Blake512::digest(b);
+    hash.to_vec()
 }
+
+#[cfg(feature = "aarch64")]
+fn blh(b: &[u8]) -> Vec<u8> {
+    let mut hash = [0; 64];
+    blake::hash(512, b, &mut hash).unwrap();
+    hash.to_vec()
+}
+
+// pub fn blh(b: &[u8]) -> Vec<u8> {
+//     let mut h = Blake2b512::new();
+//     h.update(b);
+//     let digest = h.finalize();
+//     return digest[..].to_vec();
+// }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Signature {
