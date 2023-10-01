@@ -75,11 +75,8 @@ lazy_static! {
         y: Fr::one()
     };
 
-    pub static ref ORDER: Fr = Fr::from_str(
-        "21888242871839275222246405745257275088614511777268538073601725287587578984328",
-    ).unwrap();
-
-    pub static ref ORDER_BI: BigInt = BigInt::parse_bytes(
+    // Order expressed as a bigint (it is larger than the r modulus of the Fr struct)
+    pub static ref ORDER: BigInt = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
         10,
     ).unwrap();
