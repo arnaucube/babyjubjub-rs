@@ -205,7 +205,6 @@ pub trait FrBigIntConversion<T> {
 impl FrBigIntConversion<Fr> for Fr {
     // Note: this could probably be more efficient by converting bigint to raw repr to Fr
     fn from_bigint(bi: &BigInt) -> Fr {
-        println!("bi: {}", bi.to_string());
         Fr::from_str(&bi.to_string()).unwrap()
     }
     fn to_bigint(&self) -> BigInt {
@@ -705,7 +704,6 @@ impl DLEQProof {
         // TODO: better error handling (not assert), make it more efficient too:
         assert!(x_bigint < modulus);
 
-        // println!("modulus overflow? isn't it bigger than Fr's order: {:?}", modulus_overflowed);
         let k_bigint = rand_new::thread_rng().gen_biguint(512).to_bigint().unwrap() % &modulus;
         let k = Fl::from_bigint(&k_bigint);
 
@@ -744,7 +742,6 @@ impl DLEQProof {
         );
 
         let challenge = DLEQProof::get_challenge(&self.A, &self.B, &self.xA, &self.xB, &kA_, &kB_);
-        println!("got challenge: {:?} which should equal {:?}", challenge, self.challenge);
 
         return challenge == self.challenge;
 
@@ -789,7 +786,6 @@ mod tests {
         let mut rng = rand_new::thread_rng();
         let x = Fl::from_bigint(&rng.gen_biguint(512).to_bigint().unwrap());
         let proof = DLEQProof::new(x, point_A, point_B).unwrap();
-        println!("proof: {:?}", proof.verify());
         assert!(proof.verify());
     }
     #[test]
