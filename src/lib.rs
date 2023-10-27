@@ -331,7 +331,7 @@ impl Point {
         r
     }
 
-    pub fn equals(&self, p: Point) -> bool {
+    pub fn equals(&self, p: &Point) -> bool {
         if self.x == p.x && self.y == p.y {
             return true;
         }
@@ -415,7 +415,7 @@ impl Point {
     pub fn in_subgroup(&self) -> bool {
         let should_be_zero = self.mul_scalar(&SUBORDER);
         should_be_zero.equals({
-            Point { x: Fr::zero(), y: Fr::one() }
+            &O
         })
     }
 
@@ -607,7 +607,7 @@ impl PrivateKey {
         Ok((r, s))
     }
 
-    pub fn decrypt_elgamal(&self, encrypted_point: ElGamalEncryption) -> Point {
+    pub fn decrypt_elgamal(&self, encrypted_point: &ElGamalEncryption) -> Point {
         // Make sure inputs aren't bad (i imagine this check could be skipped for performance reasons, but it seems a sanity check here would be helpful)
         assert!(encrypted_point.c1.on_curve(), "Error: C1 is not on the curve!");
         assert!(encrypted_point.c1.in_subgroup(), "Error: C1 is not in the subgroup!");
@@ -654,7 +654,7 @@ pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool,
     let pk_h = pk.mul_scalar(&h);
     let right = r.add(&pk_h);
 
-    Ok(sg.equals(right))
+    Ok(sg.equals(&right))
 }
 
 pub fn new_key() -> PrivateKey {
@@ -680,7 +680,7 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
     let r = sig
         .r_b8
         .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)));
-    l.equals(r)
+    l.equals(&r)
 }
 
 
@@ -856,7 +856,7 @@ mod tests {
         some_point_x_inverse.sub_assign(&some_point.x);
         // assert_eq!(some_point_x_inverse, some_point.x.inverse().unwrap());
         assert!(some_point.equals(
-            some_point.add(&another_point).add(
+            &some_point.add(&another_point).add(
             &another_point.neg())
         ));
 
@@ -870,7 +870,7 @@ mod tests {
             &BigInt::parse_bytes(b"ABCDEF123456789", 16).unwrap(), 
             &some_point
         );
-        let some_point_encrypted_decrypted = some_privkey.decrypt_elgamal(some_point_encrypted);
+        let some_point_encrypted_decrypted = some_privkey.decrypt_elgamal(&some_point_encrypted);
 
         assert_eq!(some_point.x, some_point_encrypted_decrypted.x);
         assert_eq!(some_point.y, some_point_encrypted_decrypted.y);
