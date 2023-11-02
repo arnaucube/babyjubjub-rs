@@ -2,7 +2,7 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-
+use std::str::FromStr;
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
@@ -17,7 +17,7 @@ extern crate blake; // compatible version with Blake used at circomlib
 use std::cmp::min;
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
-use num_traits::One;
+use num_traits::{One,Num, ToPrimitive};
 
 use generic_array::GenericArray;
 
@@ -34,7 +34,7 @@ lazy_static! {
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
         .unwrap();
-    static ref B8: Point = Point {
+    pub static ref B8: Point = Point {
         x: Fr::from_str(
                "5299619240641551281634865583518297030282874472190772894086521144482721001553",
            )
@@ -44,7 +44,7 @@ lazy_static! {
             )
                 .unwrap(),
     };
-    static ref ORDER: Fr = Fr::from_str(
+    pub static ref ORDER: Fr = Fr::from_str(
         "21888242871839275222246405745257275088614511777268538073601725287587578984328",
     )
         .unwrap();
@@ -183,6 +183,23 @@ impl Point {
         }
         false
     }
+
+    pub fn x_to_bigint(&self) -> BigInt {
+        self.fr_to_bigint(&self.x)
+    }
+
+    pub fn y_to_bigint(&self) -> BigInt {
+        self.fr_to_bigint(&self.y)
+    }
+
+    fn fr_to_bigint(&self, fr: &Fr) -> BigInt {
+        let hex_string = format!("{:?}", fr); // Use debug formatting to get the full content
+        let hex_str = &hex_string[5..hex_string.len() - 1]; // Skip "Fr(0x" and ")"
+        //println!("Hex string inside fr_to_bigint: {}", hex_str);
+        BigInt::from_str_radix(hex_str, 16).expect("Failed to convert Fr to BigInt")
+    }
+    
+    
 }
 
 pub fn test_bit(b: &[u8], i: usize) -> bool {
@@ -361,6 +378,28 @@ impl PrivateKey {
     }
 }
 
+fn bigint_to_fr(bigint: &BigInt) -> Option<Fr> {
+    bigint.to_biguint().and_then(|bu| {
+        bu.to_u64().and_then(|u| Fr::from_repr(u.into()).ok())
+    })
+}
+
+/*
+pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String> {
+    if msg > Q.clone() {
+        return Err("msg outside the Finite Field".to_string());
+    }
+    //let msg_str = msg.to_string();
+    //let msg_fr = Fr::from_str(&msg_str).map_err(|e| format!("Failed to convert msg to Fr: {}", e))?;
+    let msg_fr = bigint_to_fr(&msg).unwrap();
+    let hm_input = vec![pk.x, pk.y, c.x, c.y, msg_fr];
+    let h = POSEIDON.hash(hm_input).map_err(|e| format!("Poseidon hash failed: {}", e))?;
+    let h_hex = to_hex(&h);
+    let h_b = BigInt::parse_bytes(h_hex.as_bytes(), 16)
+        .ok_or_else(|| "Failed to convert hash result to BigInt".to_string())?;
+    Ok(h_b)
+}
+*/
 pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String> {
     if msg > Q.clone() {
         return Err("msg outside the Finite Field".to_string());
@@ -371,6 +410,7 @@ pub fn schnorr_hash(pk: &Point, msg: BigInt, c: &Point) -> Result<BigInt, String
     let h_b = BigInt::parse_bytes(to_hex(&h).as_bytes(), 16).unwrap();
     Ok(h_b)
 }
+
 
 pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool, String> {
     // sG = s·G
