@@ -21,11 +21,16 @@ pub struct Fl(FpRepr);
 
 use arrayref::array_ref;
 
-#[cfg(not(feature = "aarch64"))]
+#[cfg(not(any( target_arch = "aarch64", target_arch = "wasm32" )))]
 use blake_hash::Digest; // compatible version with Blake used at circomlib
 
-#[cfg(feature = "aarch64")]
+#[cfg( target_arch = "aarch64" )]
 extern crate blake; // compatible version with Blake used at circomlib
+
+
+#[cfg( target_arch = "wasm32" )]
+use blake2::{Blake2b512, Blake2s256, Digest}; // NOT compatible with circomlib but it works on WASM
+
 
 use std::{cmp::min, str::FromStr};
 
@@ -465,18 +470,28 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     Ok(Point { x: x_fr, y: y_fr })
 }
 
-#[cfg(not(feature = "aarch64"))]
-fn blh(b: &[u8]) -> Vec<u8> {
+#[cfg(not(any( target_arch = "aarch64", target_arch = "wasm32" )))]
+pub fn blh(b: &[u8]) -> Vec<u8> {
     let hash = blake_hash::Blake512::digest(b);
     hash.to_vec()
 }
 
-#[cfg(feature = "aarch64")]
-fn blh(b: &[u8]) -> Vec<u8> {
+#[cfg(target_arch = "aarch64")]
+pub fn blh(b: &[u8]) -> Vec<u8> {
     let mut hash = [0; 64];
     blake::hash(512, b, &mut hash).unwrap();
     hash.to_vec()
 }
+
+#[cfg(target_arch = "wasm32")]
+/// This is incompatible with the circom version
+/// TODO: find a BLAKE-512 that works on WASM
+pub fn blh(b: &[u8]) -> Vec<u8> {
+   let mut hasher = Blake2b512::new(); 
+   hasher.update(b); 
+   hasher.finalize().to_vec()
+}
+// #[cfg(target_arch = "wasm32")]
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Signature {
@@ -549,6 +564,8 @@ impl PrivateKey {
     }
 
     pub fn public(&self) -> Point {
+        println!("calling public");
+        println!("scalar key {}", &self.scalar_key());
         B8.mul_scalar(&self.scalar_key())
     }
 
