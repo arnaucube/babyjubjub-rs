@@ -1,9 +1,9 @@
 [package]
 name = "babyjubjub-rs"
-version = "0.0.10"
+version = "0.0.11"
 authors = ["arnaucube <root@arnaucube.com>"]
 edition = "2021"
-license = "GPL-3.0"
+license = "Apache-2.0"
 description = "BabyJubJub elliptic curve implementation"
 repository = "https://github.com/arnaucube/babyjubjub-rs"
 readme = "README.md"
