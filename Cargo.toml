@@ -9,17 +9,19 @@ repository = "https://github.com/arnaucube/babyjubjub-rs"
 readme = "README.md"
 
 [dependencies]
-ff = {package="ff_ce" , version= "0.11", features = ["derive"]}
-rand = "0.8"
+ff = {package="ff_ce", version= "0.11", features = ["derive"]}
+rand_new = {package="rand", version="0.8.5"}
+rand = "0.4.6"
+# rand = "0.8"
 num = "0.4"
-num-bigint = {version = "0.4", features = ["rand"]}
+num-bigint = {version = "0.4", features = ["rand", "serde"]}
 num-traits = "0.2.8"
-blake-hash = {version="0.4.0", optional=true}
-blake = {version="2.0.1", optional=true}
 generic-array = "0.14"
 poseidon-rs = "0.0.8"
 arrayref = "0.3.5"
 lazy_static = "1.4.0"
+serde = { version = "1.0.152", features = ["derive"] }
+bytes = "1.4.0"
 
 [dev-dependencies]
 criterion = "0.3"
@@ -30,6 +32,15 @@ hex = "0.4"
 name = "bench_babyjubjub"
 harness = false
 
-[features]
-default = ["blake-hash"]
-aarch64 = ["blake"]
+[target.'cfg(not(any( target_arch = "aarch64", target_arch = "wasm32" )))'.dependencies]
+blake-hash = {version="0.4.1" }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+blake = { version = "2.0.1" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+blake2 = { version = "0.10.6" }
+
+# [features]
+# default = ["blake-hash"]
+# aarch64 = ["blake"]

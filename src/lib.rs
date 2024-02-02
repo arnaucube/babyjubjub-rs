@@ -2,19 +2,37 @@
 // For LICENSE check https://github.com/arnaucube/babyjubjub-rs
 
 use ff::*;
-
+use std::fmt::Error;
+use num::Num;
+use std::fmt;
+use serde::{Serialize, ser::SerializeStruct, de::Visitor, de::MapAccess, Deserialize, Deserializer};
 use poseidon_rs::Poseidon;
 pub type Fr = poseidon_rs::Fr; // alias
 
+extern crate rand_new;
+extern crate rand;
+extern crate ff;
+
+// Create a new primefield for the subgroup defined by the base point, order Fl:
+#[derive(PrimeField)]
+#[PrimeFieldModulus = "2736030358979909402780800718157159386076813972158567259200215660948447373041"]
+#[PrimeFieldGenerator = "7"] // TODO: double check this is a valid generator!!!
+pub struct Fl(FpRepr);
+
 use arrayref::array_ref;
 
-#[cfg(not(feature = "aarch64"))]
+#[cfg(not(any( target_arch = "aarch64", target_arch = "wasm32" )))]
 use blake_hash::Digest; // compatible version with Blake used at circomlib
 
-#[cfg(feature = "aarch64")]
+#[cfg( target_arch = "aarch64" )]
 extern crate blake; // compatible version with Blake used at circomlib
 
-use std::cmp::min;
+
+#[cfg( target_arch = "wasm32" )]
+use blake2::{Blake2b512, Blake2s256, Digest}; // NOT compatible with circomlib but it works on WASM
+
+
+use std::{cmp::min, str::FromStr};
 
 use num_bigint::{BigInt, RandBigInt, Sign, ToBigInt};
 use num_traits::One;
@@ -34,7 +52,19 @@ lazy_static! {
         b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
         .unwrap();
-    static ref B8: Point = Point {
+
+    pub static ref G: Point = Point {
+        x: Fr::from_str(
+                "995203441582195749578291179787384436505546430278305826713579947235728471134",
+            )
+            .unwrap(),
+            y: Fr::from_str(
+                "5472060717959818805561601436314318772137091100104008585924551046643952123905",
+            )
+            .unwrap(),
+    };
+
+    pub static ref B8: Point = Point {
         x: Fr::from_str(
                "5299619240641551281634865583518297030282874472190772894086521144482721001553",
            )
@@ -42,21 +72,35 @@ lazy_static! {
             y: Fr::from_str(
                 "16950150798460657717958625567821834550301663161624707787222815936182638968203",
             )
-                .unwrap(),
+            .unwrap(),
     };
-    static ref ORDER: Fr = Fr::from_str(
-        "21888242871839275222246405745257275088614511777268538073601725287587578984328",
-    )
-        .unwrap();
 
-    // SUBORDER = ORDER >> 3
-    static ref SUBORDER: BigInt = &BigInt::parse_bytes(
+    pub static ref O: Point = Point {
+        x: Fr::zero(),
+        y: Fr::one()
+    };
+
+    // Order expressed as a bigint (it is larger than the r modulus of the Fr struct)
+    pub static ref ORDER: BigInt = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
         10,
+    ).unwrap();
+
+    // SUBORDER = ORDER >> 3
+    pub static ref SUBORDER: BigInt = &BigInt::parse_bytes(
+        b"21888242871839275222246405745257275088614511777268538073601725287587578984328",
+        10,
+    ).unwrap()
+    >> 3;
+    pub static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
+    
+    // MAX_MSG is maximum message length that can be encoded into a point
+    pub static ref MAX_MSG: BigInt = BigInt::parse_bytes(
+        b"21888242871839275222246405745257275088548364400416034343698204186575808495617",10
     )
         .unwrap()
-        >> 3;
-    static ref POSEIDON: poseidon_rs::Poseidon = Poseidon::new();
+        >> 10;
+
 }
 
 #[derive(Clone, Debug)]
@@ -137,12 +181,127 @@ pub struct Point {
     pub y: Fr,
 }
 
+pub trait ToDecimalString {
+    fn to_dec_string(&self) -> String;
+}
+impl ToDecimalString for Fr {
+    fn to_dec_string(&self) -> String {
+        let s = self.to_string();
+        let hex_str = s[5..s.len()-1].to_string();
+        BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
+    }
+}
+
+impl ToDecimalString for Fl {
+    fn to_dec_string(&self) -> String {
+        let s = self.to_string();
+        let hex_str = s[5..s.len()-1].to_string();
+        BigInt::from_str_radix(&hex_str, 16).unwrap().to_string()
+    }
+}
+pub trait FrBigIntConversion<T> {
+    fn from_bigint(bi: &BigInt) -> T;
+    fn to_bigint(&self) -> BigInt;
+}
+
+impl FrBigIntConversion<Fr> for Fr {
+    // Note: this could probably be more efficient by converting bigint to raw repr to Fr
+    fn from_bigint(bi: &BigInt) -> Fr {
+        Fr::from_str(&bi.to_string()).unwrap()
+    }
+    fn to_bigint(&self) -> BigInt {
+        BigInt::from_str(&self.to_dec_string()).unwrap()
+    }
+}
+
+impl FrBigIntConversion<Fl> for Fl {
+    // Note: this could probably be more efficient by converting bigint to raw repr to Fr
+    fn from_bigint(bi: &BigInt) -> Fl {
+        Fl::from_str(&bi.to_string()).unwrap()
+    }
+    fn to_bigint(&self) -> BigInt {
+        BigInt::from_str(&self.to_dec_string()).unwrap()
+    }
+}
+
+impl Serialize for Point {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+                let mut state = serializer.serialize_struct("Point", 2)?;
+                state.serialize_field("x", &self.x.to_dec_string())?;
+                state.serialize_field("y", &self.y.to_dec_string())?;
+                state.end()
+    }
+}
+
+
+impl<'de> Deserialize<'de> for Point {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>
+    {
+        deserializer.deserialize_map(PointVisitor)
+    }
+}
+// For deserialization:
+struct PointVisitor;
+
+impl<'de> Visitor<'de> for PointVisitor {
+    type Value = Point;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a map with keys 'x' and 'y'")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>
+    {
+        let mut x = None;
+        let mut y = None;
+
+        while let Some(k) = map.next_key::<String>()? {
+            if k == "x" {
+                let x_: String = map.next_value()?;
+                x = Fr::from_str(&x_);
+            }
+            else if k == "y" {
+                let y_: String = map.next_value()?;
+                y = Fr::from_str(&y_);
+            }
+            else {
+                return Err(serde::de::Error::custom(&format!("Invalid key: {}", k)));
+            }
+        }
+
+        if x.is_none() || y.is_none() {
+            return Err(serde::de::Error::custom("Missing first or second"));
+        }
+
+        Ok(Point { x: x.unwrap(), y: y.unwrap() })
+    }
+}
+
+// For addition shorthand
 impl Point {
     pub fn projective(&self) -> PointProjective {
         PointProjective {
             x: self.x,
             y: self.y,
             z: Fr::one(),
+        }
+    }
+
+    pub fn add(&self, another_point: &Point) -> Point {
+        self.projective().add(&another_point.projective()).affine()
+    }
+    pub fn neg(&self) -> Point {
+        let mut x_inverse = Fr::zero();
+        x_inverse.sub_assign(&self.x);
+        Point {
+            x: x_inverse,
+            y: self.y
         }
     }
 
@@ -177,11 +336,99 @@ impl Point {
         r
     }
 
-    pub fn equals(&self, p: Point) -> bool {
+    pub fn equals(&self, p: &Point) -> bool {
         if self.x == p.x && self.y == p.y {
             return true;
         }
         false
+    }
+
+    /// Koblitz decoding method, adapted for this curve: 
+        /// message m must be < r/(2^10) //using 2^10=1024 instead of Koblitz' parameter of 1000, so arithmetic can happen easily mod 2. This shouldn't have any (negative) impact: https://crypto.stackexchange.com/questions/103132/encoding-a-message-as-points-on-elliptic-curve
+        /// Try finding a point with y value m*1024+0, m*1024+1, .... m*1024+5617 (5617 are last four digits of prime r)
+        /// There is an approximately 1/(2^1024) chance no point will be encodable,
+        /// since each y value has probability of about 1/2 of being on the curve
+    pub fn from_msg_vartime(msg: &BigInt) -> Option<Point> {
+        #[allow(non_snake_case)]
+        let ACC_UNDER = 1024; // Last four digits of prime r. MAX_MSG * 1024 + ACC_UNDER = r
+        assert!(msg <= &MAX_MSG);
+        let mut acc: u16 = 0;
+        // Start with message * 10000 as x coordinate
+        let mut x: Fr = Fr::from_str(&msg.to_str_radix(10)).unwrap();
+        let mut y: Fr; 
+        x.mul_assign(&Fr::from_str(&ACC_UNDER.to_string()).unwrap());
+        let one = Fr::one();
+
+        while acc < ACC_UNDER {
+            // If x is on curve, calculate what y^2 should be, by (ax^2 - 1) / (dx^2 - 1)
+            let mut x2 = x.clone();
+            x2.mul_assign(&x);
+
+            // Numerator will be (ax^2 - 1) and denominator will be (dx^2 - 1)
+            let mut numerator = x2;
+            let mut denominator = x2.clone();
+
+            numerator.mul_assign(&A);
+            denominator.mul_assign(&D);
+
+            numerator.sub_assign(&one);
+            denominator.sub_assign(&one);
+
+            // If the point is on the curve, numerator/denominator will be y^2. Check whether numerator/denominator is a quadratic residue:
+            numerator.mul_assign(&denominator.inverse().unwrap()); // Note: this is no longer a numerator since it was divided in this step
+            
+            if let LegendreSymbol::QuadraticResidue = numerator.legendre() {
+                y = numerator.sqrt().unwrap();
+                let pt = Point {x, y};
+                if pt.in_subgroup() {
+                    return Some(Point {x, y})
+                }
+            } 
+            acc += 1;
+            x.add_assign(&one);
+        }
+        return None
+    }
+
+    /// Converts a point to a message by dividing its x by 1024 (a.k.a. right-shifting by 10)
+    pub fn to_msg(&self) -> Fr {
+        let mut msg = self.x.clone().into_repr();
+        msg.shr(10);
+        Fr::from_repr(msg).unwrap()
+
+    }
+    /// Checks that a point is on the BabyJubJub curve. Does not check the point is in the correct subgroup.
+    pub fn on_curve(&self) -> bool {
+        let mut x2 = self.x.clone();
+        let mut y2 = self.y.clone();
+        x2.mul_assign(&self.x);
+        y2.mul_assign(&self.y);
+        // compute left hand side ax^2+y^2
+        let mut lhs = x2.clone();
+        lhs.mul_assign(&A);
+        lhs.add_assign(&y2);
+        // compute right hand side: x^2*y^2*d+1
+        let mut rhs = x2.clone();
+        rhs.mul_assign(&y2);
+        rhs.mul_assign(&D);
+        rhs.add_assign(&Fr::one());
+
+        lhs.eq(&rhs)
+    }
+
+    /// Checks that a point's order is equal to the subgroup order. Does not check the point is on the curve.
+    pub fn in_subgroup(&self) -> bool {
+        let should_be_zero = self.mul_scalar(&SUBORDER);
+        should_be_zero.equals({
+            &O
+        })
+    }
+
+    pub fn from_xy_strings(x: String, y: String) -> Point {
+        Point {
+            x: Fr::from_str(&x).unwrap(),
+            y: Fr::from_str(&y).unwrap()
+        }
     }
 }
 
@@ -223,20 +470,30 @@ pub fn decompress_point(bb: [u8; 32]) -> Result<Point, String> {
     Ok(Point { x: x_fr, y: y_fr })
 }
 
-#[cfg(not(feature = "aarch64"))]
-fn blh(b: &[u8]) -> Vec<u8> {
+#[cfg(not(any( target_arch = "aarch64", target_arch = "wasm32" )))]
+pub fn blh(b: &[u8]) -> Vec<u8> {
     let hash = blake_hash::Blake512::digest(b);
     hash.to_vec()
 }
 
-#[cfg(feature = "aarch64")]
-fn blh(b: &[u8]) -> Vec<u8> {
+#[cfg(target_arch = "aarch64")]
+pub fn blh(b: &[u8]) -> Vec<u8> {
     let mut hash = [0; 64];
     blake::hash(512, b, &mut hash).unwrap();
     hash.to_vec()
 }
 
-#[derive(Debug, Clone)]
+#[cfg(target_arch = "wasm32")]
+/// This is incompatible with the circom version
+/// TODO: find a BLAKE-512 that works on WASM
+pub fn blh(b: &[u8]) -> Vec<u8> {
+   let mut hasher = Blake2b512::new(); 
+   hasher.update(b); 
+   hasher.finalize().to_vec()
+}
+// #[cfg(target_arch = "wasm32")]
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Signature {
     pub r_b8: Point,
     pub s: BigInt,
@@ -265,6 +522,11 @@ pub fn decompress_signature(b: &[u8; 64]) -> Result<Signature, String> {
         Result::Err(err) => Err(err),
         Result::Ok(res) => Ok(Signature { r_b8: res, s }),
     }
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ElGamalEncryption {
+    pub c1: Point,
+    pub c2: Point
 }
 
 pub struct PrivateKey {
@@ -302,6 +564,8 @@ impl PrivateKey {
     }
 
     pub fn public(&self) -> Point {
+        println!("calling public");
+        println!("scalar key {}", &self.scalar_key());
         B8.mul_scalar(&self.scalar_key())
     }
 
@@ -338,13 +602,13 @@ impl PrivateKey {
         s = r + s;
         s %= &SUBORDER.clone();
 
-        Ok(Signature { r_b8, s })
+        Ok(Signature { r_b8, s: s })
     }
 
     #[allow(clippy::many_single_char_names)]
     pub fn sign_schnorr(&self, m: BigInt) -> Result<(Point, BigInt), String> {
         // random r
-        let mut rng = rand::thread_rng();
+        let mut rng = rand_new::thread_rng();
         let k = rng.gen_biguint(1024).to_bigint().unwrap();
 
         // r = k·G
@@ -358,6 +622,32 @@ impl PrivateKey {
         let sk_scalar = self.scalar_key();
         let s = k + &sk_scalar * &h;
         Ok((r, s))
+    }
+
+    pub fn decrypt_elgamal(&self, encrypted_point: &ElGamalEncryption) -> Point {
+        // Make sure inputs aren't bad (i imagine this check could be skipped for performance reasons, but it seems a sanity check here would be helpful)
+        assert!(encrypted_point.c1.on_curve(), "Error: C1 is not on the curve!");
+        assert!(encrypted_point.c1.in_subgroup(), "Error: C1 is not in the subgroup!");
+        assert!(encrypted_point.c2.on_curve(), "Error: C2 is not on the curve!");
+        assert!(encrypted_point.c2.in_subgroup(), "Error: C2 is not in the subgroup!");
+        
+        let shared_secret = encrypted_point.c1.mul_scalar(&self.scalar_key());
+        // Subtract the shared secret
+        encrypted_point.c2.add(&shared_secret.neg())
+    }
+
+}
+
+// encrypts msg to public key to_pubkey, using some random scalar nonce
+pub fn encrypt_elgamal(to_pubkey: &Point, nonce: &BigInt, msg: &Point) -> ElGamalEncryption {
+    let shared_secret = to_pubkey.mul_scalar(&nonce);
+    let public_nonce = B8.mul_scalar(&nonce);
+    // let msg_point = point_for_msg(msg);
+    let msg_plus_secret = msg.add(&shared_secret);
+
+    ElGamalEncryption {
+        c1: public_nonce,
+        c2: msg_plus_secret
     }
 }
 
@@ -379,14 +669,14 @@ pub fn verify_schnorr(pk: Point, m: BigInt, r: Point, s: BigInt) -> Result<bool,
     // r + h · x
     let h = schnorr_hash(&pk, m, &r)?;
     let pk_h = pk.mul_scalar(&h);
-    let right = r.projective().add(&pk_h.projective());
+    let right = r.add(&pk_h);
 
-    Ok(sg.equals(right.affine()))
+    Ok(sg.equals(&right))
 }
 
 pub fn new_key() -> PrivateKey {
     // https://tools.ietf.org/html/rfc8032#section-5.1.5
-    let mut rng = rand::thread_rng();
+    let mut rng = rand_new::thread_rng();
     let sk_raw = rng.gen_biguint(1024).to_bigint().unwrap();
     let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
     PrivateKey::import(sk_raw_bytes[..32].to_vec()).unwrap()
@@ -406,17 +696,202 @@ pub fn verify(pk: Point, sig: Signature, msg: BigInt) -> bool {
     let hm_b = BigInt::parse_bytes(to_hex(&hm).as_bytes(), 16).unwrap();
     let r = sig
         .r_b8
-        .projective()
-        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)).projective());
-    l.equals(r.affine())
+        .add(&pk.mul_scalar(&(8.to_bigint().unwrap() * hm_b)));
+    l.equals(&r)
+}
+
+
+pub struct DLEQProof {
+    pub A: Point,
+    pub B: Point,
+    pub xA: Point,
+    pub xB: Point,
+    pub challenge: Fl,
+    pub response: Fl,
+}
+impl DLEQProof {
+     // Prove x*A = variable xA and x*B = variable xB
+    pub fn new(x: Fl, point_A: Point, point_B: Point) -> Result<DLEQProof, Error> {
+        let x_bigint = x.to_bigint();
+
+        let modulus = SUBORDER.clone();
+        // TODO: better error handling (not assert), make it more efficient too:
+        assert!(x_bigint < modulus);
+
+        let k_bigint = rand_new::thread_rng().gen_biguint(512).to_bigint().unwrap() % &modulus;
+        let k = Fl::from_bigint(&k_bigint);
+
+        let xA = point_A.mul_scalar(&x_bigint);
+        let xB = point_B.mul_scalar(&x_bigint);
+
+        let kA = point_A.mul_scalar(&k_bigint);
+        let kB = point_B.mul_scalar(&k_bigint);
+        
+        let challenge = DLEQProof::get_challenge(&point_A, &point_B, &xA, &xB, &kA, &kB);
+        let mut challenge_x = challenge.clone(); challenge_x.mul_assign(&x);
+        // response = k - challenge * x;
+        let mut response = k.clone(); response.sub_assign(&challenge_x);
+
+        Ok(DLEQProof {
+            A: point_A,
+            B: point_B,
+            xA: xA,
+            xB: xB,
+            challenge: challenge,
+            response: response,
+        })
+    }
+
+    pub fn verify(&self) -> bool {
+        // This should equal kA
+        let kA_ = 
+            self.A.mul_scalar(&self.response.to_bigint()).add(
+                &self.xA.mul_scalar(&self.challenge.to_bigint())
+            );
+        
+        // This should equal kB
+        let kB_ = 
+            self.B.mul_scalar(&self.response.to_bigint()).add(
+                &self.xB.mul_scalar(&self.challenge.to_bigint())
+        );
+
+        let challenge = DLEQProof::get_challenge(&self.A, &self.B, &self.xA, &self.xB, &kA_, &kB_);
+
+        return challenge == self.challenge;
+
+    }
+    // Generates randomness for DLEQ Fiat-Shamir transform
+    fn get_challenge(point_A: &Point, point_B: &Point, xA: &Point, xB: &Point, kA: &Point, kB: &Point) -> Fl {
+        // This could probably be faster if we neglect either the x or y coordinate, but rn doing both to be safe until i study this more
+        let inputs: Vec<Fr> = vec![
+                point_A.x,point_A.y, 
+                xA.x,xA.y,
+                point_B.x,point_B.y,
+                xB.x,xB.y,
+                kA.x,kA.y,
+                kB.x,kB.y
+        ];
+        let input: Vec<u8> = inputs.iter().map(|f| {
+            let as_hex = to_hex(f);
+            hex::decode(as_hex).unwrap()
+        })
+        .flatten()
+        .collect();
+        
+        let challenge_hash = blh(&input);
+        Fl::from_bigint(&BigInt::from_bytes_be(Sign::Plus, &challenge_hash.as_slice()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::hex;
-    use rand::Rng;
+    use rand_new::Rng;
+    use num_traits::FromPrimitive;
 
+    #[test]
+    fn test_dleq() {
+        let a = BigInt::parse_bytes(b"123456789", 10).unwrap();
+        let point_A = B8.mul_scalar(&a);
+        let b = BigInt::parse_bytes(b"55555555555555512345678944444444444", 10).unwrap();
+        let point_B = B8.mul_scalar(&b);
+
+        let mut rng = rand_new::thread_rng();
+        let x = Fl::from_bigint(&rng.gen_biguint(512).to_bigint().unwrap());
+        let proof = DLEQProof::new(x, point_A, point_B).unwrap();
+        assert!(proof.verify());
+    }
+    #[test]
+    fn test_on_curve() {
+        assert_eq!(B8.on_curve(), true);
+        assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).on_curve(), true);
+
+        let some_point = Point { x: Fr::from_str("1234").unwrap(), y: Fr::from_str("5678").unwrap() };
+        assert_eq!(some_point.on_curve(), false);
+    }
+
+    #[test]
+    fn test_in_subgroup() {
+        assert_eq!(B8.in_subgroup(), true);
+        assert_eq!(B8.mul_scalar(&12345.to_bigint().unwrap()).in_subgroup(), true);
+
+        assert_eq!(G.in_subgroup(), false);
+        assert_eq!(G.mul_scalar(&5.to_bigint().unwrap()).in_subgroup(), false);
+        assert_eq!(G.mul_scalar(&7.to_bigint().unwrap()).in_subgroup(), false);
+        
+        assert_eq!(G.mul_scalar(&8.to_bigint().unwrap()).in_subgroup(), true);
+        assert_eq!(G.mul_scalar(&16.to_bigint().unwrap()).in_subgroup(), true);
+        assert_eq!(G.mul_scalar(&8000.to_bigint().unwrap()).in_subgroup(), true);
+
+        
+
+
+        
+    }
+    #[test]
+    fn test_from_msg_vartime() {
+        let msg = 123456789.to_bigint().unwrap();
+        assert!(Point::from_msg_vartime(&msg).unwrap().on_curve());
+
+        // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
+        for n in 0..20 {
+            let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+            assert!(Point::from_msg_vartime(&m).unwrap().on_curve());
+            assert!(Point::from_msg_vartime(&m).unwrap().in_subgroup());
+        }
+
+    }
+
+    #[test]
+    fn test_from_to_msg() {        
+        // Convert from msg to point back to msg and make sure it works:
+        let msg = 123456789.to_bigint().unwrap();
+        assert!(
+            Point::from_msg_vartime(&msg).unwrap().to_msg()
+            .eq(
+            &Fr::from_str(&msg.to_string()).unwrap()
+            )
+        );
+
+        // Try with some more random numbers -- it's extremely unlikely to get lucky will with valid points 20 times in a row if it's not always producing valid points
+        for n in 0..20 {
+            let m = rand_new::thread_rng().gen_bigint_range(&0.to_bigint().unwrap() , &MAX_MSG);
+                                                                                                                                                                                       assert!(
+                Point::from_msg_vartime(&m).unwrap().to_msg()
+                .eq(
+                &Fr::from_str(&m.to_string()).unwrap()
+                )
+            );
+        }
+    }
+    #[test]
+    fn test_neg() {
+        let some_point = B8.mul_scalar(&BigInt::from_u8(0x69).unwrap());
+        let another_point = B8.mul_scalar(&BigInt::from_u8(0x99).unwrap());
+        let mut some_point_x_inverse = Fr::zero();
+        some_point_x_inverse.sub_assign(&some_point.x);
+        // assert_eq!(some_point_x_inverse, some_point.x.inverse().unwrap());
+        assert!(some_point.equals(
+            &some_point.add(&another_point).add(
+            &another_point.neg())
+        ));
+
+    }
+    #[test]
+    fn test_elgamal() {
+        let some_point = B8.mul_scalar(&BigInt::from_u8(0x69).unwrap());
+        let some_privkey = new_key();
+        let some_point_encrypted = encrypt_elgamal(
+            &some_privkey.public(), 
+            &BigInt::parse_bytes(b"ABCDEF123456789", 16).unwrap(), 
+            &some_point
+        );
+        let some_point_encrypted_decrypted = some_privkey.decrypt_elgamal(&some_point_encrypted);
+
+        assert_eq!(some_point.x, some_point_encrypted_decrypted.x);
+        assert_eq!(some_point.y, some_point_encrypted_decrypted.y);
+    }
     #[test]
     fn test_add_same_point() {
         let p: PointProjective = PointProjective {
@@ -511,8 +986,8 @@ mod tests {
             .unwrap(),
         };
         let res_m = p.mul_scalar(&3.to_bigint().unwrap());
-        let res_a = p.projective().add(&p.projective());
-        let res_a = res_a.add(&p.projective()).affine();
+        let res_a = p.add(&p);
+        let res_a = res_a.add(&p);
         assert_eq!(res_m.x, res_a.x);
         assert_eq!(
             res_m.x,
@@ -634,7 +1109,7 @@ mod tests {
     #[test]
     fn test_point_decompress_loop() {
         for _ in 0..5 {
-            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            let random_bytes = rand_new::thread_rng().gen::<[u8; 32]>();
             let sk_raw: BigInt = BigInt::from_bytes_le(Sign::Plus, &random_bytes[..]);
             let (_, sk_raw_bytes) = sk_raw.to_bytes_be();
             let mut h: Vec<u8> = blh(&sk_raw_bytes);
@@ -719,7 +1194,6 @@ mod tests {
 
         // test signature & verification
         let msg = BigInt::from_bytes_le(Sign::Plus, &hex::decode("00010203040506070809").unwrap());
-        println!("msg {:?}", msg.to_string());
         let sig = sk.sign(msg.clone()).unwrap();
         assert_eq!(
             sig.r_b8.x.to_string(),
